@@ -29,6 +29,7 @@ export function StudentAccountsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [lastSavedClasses, setLastSavedClasses] = useState<string[]>([]);
 
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
@@ -39,6 +40,7 @@ export function StudentAccountsView() {
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [className, setClassName] = useState('XII IPA 1');
+  const [customClassMode, setCustomClassMode] = useState(false);
   const [pin, setPin] = useState('123456');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -46,6 +48,8 @@ export function StudentAccountsView() {
   // Excel import modal
   const [importOpen, setImportOpen] = useState(false);
   const [importFileName, setImportFileName] = useState('');
+  const [importTargetClass, setImportTargetClass] = useState('__from_file__');
+  const [importCustomClass, setImportCustomClass] = useState('');
   const [parsedRows, setParsedRows] = useState<ParsedImportedStudent[]>([]);
   const [skipExamples, setSkipExamples] = useState(true);
   const [selectedImportIds, setSelectedImportIds] = useState<string[]>([]);
@@ -93,13 +97,21 @@ export function StudentAccountsView() {
     loadData();
   }, []);
 
-  const availableClasses = useMemo(() => {
-    const set = new Set<string>();
+  const classCounts = useMemo(() => {
+    const map = new Map<string, number>();
     for (const s of students) {
-      if (s.className?.trim()) set.add(s.className.trim());
+      const cls = s.className?.trim();
+      if (cls) {
+        map.set(cls, (map.get(cls) || 0) + 1);
+      }
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'id'));
+    return map;
   }, [students]);
+
+  const availableClasses = useMemo(
+    () => Array.from(classCounts.keys()).sort((a, b) => a.localeCompare(b, 'id')),
+    [classCounts]
+  );
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -128,20 +140,34 @@ export function StudentAccountsView() {
     setSelectedIds(allSelected ? [] : ids);
   };
 
+  const openCreateModal = () => {
+    setFormError(null);
+    const defaultClass =
+      classFilter !== 'all'
+        ? classFilter
+        : availableClasses[0] || '';
+    setClassName(defaultClass);
+    setCustomClassMode(availableClasses.length === 0);
+    setModalOpen(true);
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+    const finalClass = className.trim() || 'Umum';
     setSaving(true);
     try {
       await api.request('/api/teacher/students', {
         method: 'POST',
-        body: JSON.stringify({ username, name, className, pin }),
+        body: JSON.stringify({ username, name, className: finalClass, pin }),
       });
       setModalOpen(false);
       setUsername('');
       setName('');
       setPin('123456');
-      setSuccessMsg('Akun siswa baru berhasil ditambahkan.');
+      setLastSavedClasses([finalClass]);
+      setClassFilter(finalClass);
+      setSuccessMsg(`Akun siswa baru (${finalClass}) berhasil ditambahkan.`);
       await loadData();
     } catch (err: any) {
       setFormError(err.message || 'Gagal menambah siswa.');
@@ -162,10 +188,21 @@ export function StudentAccountsView() {
 
   const openImportModal = () => {
     setImportFileName('');
+    setImportTargetClass(classFilter !== 'all' ? classFilter : '__from_file__');
+    setImportCustomClass('');
     setParsedRows([]);
     setSelectedImportIds([]);
     setImportError(null);
     setImportOpen(true);
+  };
+
+  const resolveImportOverrideClass = (
+    target: string,
+    customVal: string
+  ): string | null => {
+    if (target === '__from_file__') return null;
+    if (target === '__custom__') return customVal.trim() || null;
+    return target.trim() || null;
   };
 
   const handleExcelUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -178,9 +215,16 @@ export function StudentAccountsView() {
     setParsingExcel(true);
     try {
       const parsed = await parseStudentExcelFile(file);
-      setParsedRows(parsed);
+      const overrideClass = resolveImportOverrideClass(
+        importTargetClass,
+        importCustomClass
+      );
+      const adjusted = overrideClass
+        ? parsed.map((r) => ({ ...r, className: overrideClass }))
+        : parsed;
+      setParsedRows(adjusted);
       setSelectedImportIds(
-        parsed
+        adjusted
           .filter((r) => !r.validationError && (!skipExamples || !r.isExample))
           .map((r) => r.tempId)
       );
@@ -191,6 +235,22 @@ export function StudentAccountsView() {
     } finally {
       setParsingExcel(false);
     }
+  };
+
+  const handleImportTargetClassChange = (nextTarget: string) => {
+    setImportTargetClass(nextTarget);
+    const overrideClass = resolveImportOverrideClass(nextTarget, importCustomClass);
+    if (overrideClass && parsedRows.length > 0) {
+      setParsedRows((prev) => prev.map((r) => ({ ...r, className: overrideClass })));
+    }
+  };
+
+  const updateImportedRowClass = (tempId: string, nextClass: string) => {
+    setParsedRows((prev) =>
+      prev.map((r) =>
+        r.tempId === tempId ? { ...r, className: nextClass.trim() || 'Umum' } : r
+      )
+    );
   };
 
   const handleToggleSkipExamples = (next: boolean) => {
@@ -236,6 +296,13 @@ export function StudentAccountsView() {
         }),
       });
       setImportOpen(false);
+      const importedClasses = Array.from(
+        new Set(chosen.map((r) => r.className.trim()).filter(Boolean))
+      );
+      setLastSavedClasses(importedClasses);
+      if (importedClasses.length === 1) {
+        setClassFilter(importedClasses[0]);
+      }
       const skippedText =
         res.skippedUsernames.length > 0
           ? ` (${res.skippedUsernames.length} username sudah terdaftar dilewati: ${res.skippedUsernames
@@ -251,6 +318,12 @@ export function StudentAccountsView() {
     } finally {
       setImportingExcel(false);
     }
+  };
+
+  const openPrintCardsForClass = (cls: string) => {
+    setCardTargetIds(null);
+    setCardClassFilter(cls);
+    setCardsOpen(true);
   };
 
   const openPrintCards = (specificIds?: number[]) => {
@@ -420,16 +493,16 @@ export function StudentAccountsView() {
           >
             <Printer className="w-4 h-4 text-blue-700" />
             <span>
-              Cetak Kartu Ujian
-              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+              {selectedIds.length > 0
+                ? `Cetak Kartu Terpilih (${selectedIds.length})`
+                : classFilter !== 'all'
+                ? `Cetak Kartu Kelas ${classFilter} (${filteredStudents.length})`
+                : 'Cetak Kartu Ujian'}
             </span>
           </button>
           <button
             type="button"
-            onClick={() => {
-              setFormError(null);
-              setModalOpen(true);
-            }}
+            onClick={openCreateModal}
             className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg flex items-center gap-2 whitespace-nowrap cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -439,18 +512,34 @@ export function StudentAccountsView() {
       </div>
 
       {successMsg && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 flex items-center justify-between gap-3">
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
             <span>{successMsg}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setSuccessMsg(null)}
-            className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
-          >
-            Tutup
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {lastSavedClasses.map((cls) => (
+              <button
+                key={cls}
+                type="button"
+                onClick={() => openPrintCardsForClass(cls)}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Kartu Kelas {cls}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setSuccessMsg(null);
+                setLastSavedClasses([]);
+              }}
+              className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer px-2"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       )}
 
@@ -460,7 +549,7 @@ export function StudentAccountsView() {
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -472,22 +561,32 @@ export function StudentAccountsView() {
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">
-            Filter Kelas:
+            Pilih Kelas:
           </label>
           <select
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}
             className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
           >
-            <option value="all">Semua Kelas ({students.length})</option>
+            <option value="all">Semua Kelas ({students.length} siswa)</option>
             {availableClasses.map((cls) => (
               <option key={cls} value={cls}>
-                {cls}
+                {cls} ({classCounts.get(cls) || 0} siswa)
               </option>
             ))}
           </select>
+          {classFilter !== 'all' && filteredStudents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => openPrintCardsForClass(classFilter)}
+              className="px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak Kelas {classFilter}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -647,15 +746,42 @@ export function StudentAccountsView() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Kelas
+                  Pilih Kelas
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={className}
-                  onChange={(e) => setClassName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
+                {availableClasses.length > 0 && (
+                  <select
+                    value={customClassMode ? '__custom__' : className}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setCustomClassMode(true);
+                        setClassName('');
+                      } else {
+                        setCustomClassMode(false);
+                        setClassName(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                  >
+                    {availableClasses.map((cls) => (
+                      <option key={cls} value={cls}>
+                        {cls} ({classCounts.get(cls) || 0} siswa)
+                      </option>
+                    ))}
+                    <option value="__custom__">+ Tambah Kelas Baru...</option>
+                  </select>
+                )}
+                {(customClassMode || availableClasses.length === 0) && (
+                  <input
+                    type="text"
+                    required
+                    value={className}
+                    onChange={(e) => setClassName(e.target.value)}
+                    placeholder="Contoh: VI A atau XII IPA 1"
+                    className={`${
+                      availableClasses.length > 0 ? 'mt-2 border-blue-300' : 'border-slate-300'
+                    } w-full px-3 py-2 rounded-lg border text-sm`}
+                  />
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -728,6 +854,59 @@ export function StudentAccountsView() {
                 <Download className="w-4 h-4" />
                 <span>Unduh Template (.xlsx)</span>
               </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Pilih Kelas Tujuan (Opsional — untuk langsung menentukan kelas)
+                </label>
+                <select
+                  value={importTargetClass}
+                  onChange={(e) => handleImportTargetClassChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                >
+                  <option value="__from_file__">Gunakan kolom Kelas di file Excel</option>
+                  {availableClasses.map((cls) => (
+                    <option key={cls} value={cls}>
+                      Semua masukkan ke Kelas {cls}
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Ketik Kelas Baru untuk Semua...</option>
+                </select>
+              </div>
+              {importTargetClass === '__custom__' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nama Kelas Baru
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={importCustomClass}
+                      onChange={(e) => setImportCustomClass(e.target.value)}
+                      placeholder="Contoh: VI B"
+                      className="flex-1 px-3 py-2 rounded-lg border border-blue-300 text-xs bg-white"
+                    />
+                    {parsedRows.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = importCustomClass.trim();
+                          if (clean) {
+                            setParsedRows((prev) =>
+                              prev.map((r) => ({ ...r, className: clean }))
+                            );
+                          }
+                        }}
+                        className="px-3 py-2 bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                      >
+                        Terapkan
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -845,7 +1024,27 @@ export function StudentAccountsView() {
                               {row.name}
                             </td>
                             <td className="py-2 px-3 text-slate-700">
-                              {row.className}
+                              <select
+                                value={row.className}
+                                onChange={(e) =>
+                                  updateImportedRowClass(row.tempId, e.target.value)
+                                }
+                                className="px-2 py-1 rounded border border-slate-300 bg-white text-xs font-medium text-slate-800"
+                              >
+                                {Array.from(
+                                  new Set([
+                                    ...availableClasses,
+                                    ...(row.className ? [row.className] : []),
+                                    'Umum',
+                                  ])
+                                )
+                                  .sort((a, b) => a.localeCompare(b, 'id'))
+                                  .map((cls) => (
+                                    <option key={cls} value={cls}>
+                                      {cls}
+                                    </option>
+                                  ))}
+                              </select>
                             </td>
                             <td className="py-2 px-3 font-mono text-slate-700">
                               {row.pin}
@@ -977,7 +1176,7 @@ export function StudentAccountsView() {
                   <option value="all">Semua Kelas ({students.length} siswa)</option>
                   {availableClasses.map((cls) => (
                     <option key={cls} value={cls}>
-                      Kelas {cls}
+                      Kelas {cls} ({classCounts.get(cls) || 0} siswa)
                     </option>
                   ))}
                 </select>

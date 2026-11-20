@@ -188,7 +188,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'id', 'numericId', 'teacherUid', 'teacherName', 'teacherUsername',
-        'subject', 'type', 'prompt', 'imageData', 'options', 'correctAnswer',
+        'subject', 'className', 'targetClasses', 'type', 'prompt', 'imageData', 'options', 'correctAnswer',
         'points', 'difficulty', 'createdAt', 'updatedAt'
       ]) &&
       isValidId(data.id) &&
@@ -198,6 +198,8 @@ service cloud.firestore {
       data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 120 &&
       data.teacherUsername is string && data.teacherUsername.size() >= 1 && data.teacherUsername.size() <= 64 &&
       data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 120 &&
+      (!('className' in data) || (data.className is string && data.className.size() <= 80)) &&
+      (!('targetClasses' in data) || hasValidStringList(data.targetClasses, 50, 60)) &&
       data.type in ['pg', 'isian', 'benar_salah', 'uraian'] &&
       data.prompt is string && data.prompt.size() >= 1 && data.prompt.size() <= 4000 &&
       data.imageData is string && data.imageData.size() <= 750000 &&
@@ -544,7 +546,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
-          'subject', 'type', 'prompt', 'imageData', 'options',
+          'subject', 'className', 'targetClasses', 'type', 'prompt', 'imageData', 'options',
           'correctAnswer', 'points', 'difficulty', 'updatedAt'
         ]);
       allow delete: if isTeacher() && isValidId(questionId) &&

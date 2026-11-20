@@ -55,6 +55,7 @@ export function ExamManagementView() {
   const [violationAction, setViolationAction] = useState<'suspend' | 'auto_submit'>('suspend');
   const [proctorPin, setProctorPin] = useState('998877');
   const [selectedQIds, setSelectedQIds] = useState<number[]>([]);
+  const [questionClassFilter, setQuestionClassFilter] = useState<string>('all');
   const [targetClasses, setTargetClasses] = useState<string[]>([]);
   const [customClassInput, setCustomClassInput] = useState('');
 
@@ -103,6 +104,7 @@ export function ExamManagementView() {
     setEndTime(toLocalDatetimeInput(nextWeek));
     const allIds = questions.map((q) => q.id);
     setSelectedQIds(allIds);
+    setQuestionClassFilter('all');
     setQuestionCount(Math.max(1, allIds.length));
     setKkm(75);
     setShuffleQuestions(true);
@@ -145,6 +147,7 @@ export function ExamManagementView() {
     setViolationAction(exam.violationAction);
     setProctorPin(exam.proctorPin);
     setSelectedQIds(exam.questionIds || []);
+    setQuestionClassFilter('all');
     setTargetClasses(exam.targetClasses || []);
     setCustomClassInput('');
     setFormError(null);
@@ -182,9 +185,37 @@ export function ExamManagementView() {
     setCustomClassInput('');
   };
 
+  const getQClasses = (q: QuestionItem): string[] => {
+    if (Array.isArray(q.targetClasses) && q.targetClasses.length > 0) {
+      return q.targetClasses
+        .map((c) => c.trim())
+        .filter((c) => c && c.toLowerCase() !== 'semua kelas');
+    }
+    if (q.className) {
+      return q.className
+        .split(/[,;]+/)
+        .map((c) => c.trim())
+        .filter((c) => c && c.toLowerCase() !== 'semua kelas');
+    }
+    return [];
+  };
+
   const classOptions = Array.from(
-    new Set([...availableClasses, ...targetClasses])
+    new Set([
+      ...availableClasses,
+      ...targetClasses,
+      ...questions.flatMap((q) => getQClasses(q)),
+    ])
   ).sort((a, b) => a.localeCompare(b, 'id'));
+
+  const filteredQuestions = questions.filter((q) => {
+    if (questionClassFilter === 'all') return true;
+    const qClasses = getQClasses(q);
+    if (questionClassFilter === 'Semua Kelas') return qClasses.length === 0;
+    return qClasses.some(
+      (c) => c.toLowerCase() === questionClassFilter.trim().toLowerCase()
+    );
+  });
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -779,34 +810,60 @@ export function ExamManagementView() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <label className="text-xs font-semibold text-slate-700">
                     Pilih Soal dari Bank Soal ({selectedQIds.length} dipilih)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedQIds(
-                        selectedQIds.length === questions.length
-                          ? []
-                          : questions.map((q) => q.id)
-                      )
-                    }
-                    className="text-xs font-semibold text-blue-700 cursor-pointer"
-                  >
-                    {selectedQIds.length === questions.length
-                      ? 'Kosongkan Pilihan'
-                      : 'Pilih Semua Soal'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={questionClassFilter}
+                      onChange={(e) => setQuestionClassFilter(e.target.value)}
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs text-slate-700"
+                    >
+                      <option value="all">Semua Kelas Soal</option>
+                      <option value="Semua Kelas">Umum (Semua Kelas)</option>
+                      {classOptions.map((cls) => (
+                        <option key={cls} value={cls}>
+                          Kelas {cls}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const visibleIds = filteredQuestions.map((q) => q.id);
+                        const allVisibleSelected =
+                          visibleIds.length > 0 &&
+                          visibleIds.every((id) => selectedQIds.includes(id));
+                        if (allVisibleSelected) {
+                          setSelectedQIds((prev) =>
+                            prev.filter((id) => !visibleIds.includes(id))
+                          );
+                        } else {
+                          setSelectedQIds((prev) =>
+                            Array.from(new Set([...prev, ...visibleIds]))
+                          );
+                        }
+                      }}
+                      className="text-xs font-semibold text-blue-700 cursor-pointer"
+                    >
+                      {filteredQuestions.length > 0 &&
+                      filteredQuestions.every((q) => selectedQIds.includes(q.id))
+                        ? 'Kosongkan Tampil'
+                        : 'Pilih Semua Tampil'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
-                  {questions.length === 0 ? (
+                  {filteredQuestions.length === 0 ? (
                     <div className="p-4 text-xs text-slate-500 text-center">
-                      Bank soal masih kosong. Tambahkan soal di menu Bank Soal terlebih dahulu.
+                      {questions.length === 0
+                        ? 'Bank soal masih kosong. Tambahkan soal di menu Bank Soal terlebih dahulu.'
+                        : 'Tidak ada soal pada filter kelas ini.'}
                     </div>
                   ) : (
-                    questions.map((q) => {
+                    filteredQuestions.map((q) => {
                       const checked = selectedQIds.includes(q.id);
                       return (
                         <button
@@ -825,7 +882,11 @@ export function ExamManagementView() {
                               {q.prompt}
                             </p>
                             <p className="text-xs text-slate-500">
-                              {q.type.toUpperCase()} · {q.subject} · {q.points} poin
+                              {q.type.toUpperCase()} · {q.subject} ·{' '}
+                              {getQClasses(q).length > 0
+                                ? `Kelas ${getQClasses(q).join(', ')}`
+                                : 'Semua Kelas'}{' '}
+                              · {q.points} poin
                             </p>
                           </div>
                         </button>

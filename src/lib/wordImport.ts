@@ -6,6 +6,8 @@ export interface ParsedImportedQuestion {
   rowLabel: string;
   isExample: boolean;
   subject: string;
+  className: string;
+  targetClasses: string[];
   type: QuestionType;
   prompt: string;
   imageData: string | null;
@@ -361,10 +363,29 @@ function findColumnByPriority(
   return null;
 }
 
+function parseClassListInput(raw: string): string[] {
+  const parts = raw
+    .split(/[,;]+/)
+    .map((p) => p.trim())
+    .filter((p) => p && p !== '-' && p.toLowerCase() !== 'semua kelas');
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    const key = p.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(p.slice(0, 60));
+    }
+  }
+  return out;
+}
+
 export async function parseWordDocxFile(
   file: File,
   defaults: {
     subject: string;
+    className?: string;
+    targetClasses?: string[];
     difficulty: 'mudah' | 'sedang' | 'sulit';
   }
 ): Promise<WordImportParseResult> {
@@ -459,6 +480,12 @@ export async function parseWordDocxFile(
     const usedCols = new Set<number>();
     const colNo = findColumnByPriority(headers, ['no', 'nomor'], usedCols, 0);
     const colType = findColumnByPriority(headers, ['tipe', 'jenis'], usedCols, 1);
+    const colClass = findColumnByPriority(
+      headers,
+      ['kelas', 'rombel', 'class'],
+      usedCols,
+      null
+    );
     const colSubject = findColumnByPriority(
       headers,
       ['mata pelajaran', 'mapel', 'subject'],
@@ -505,6 +532,7 @@ export async function parseWordDocxFile(
 
       const rawNo = getCellText(colNo);
       const rawType = getCellText(colType);
+      const rawClass = getCellText(colClass);
       const rawSubject = getCellText(colSubject);
       const promptCell =
         colPrompt !== null && colPrompt < cells.length ? cells[colPrompt] : null;
@@ -551,6 +579,14 @@ export async function parseWordDocxFile(
         correctAnswer: normalizedKey,
       });
 
+      const defaultClasses =
+        defaults.targetClasses && defaults.targetClasses.length > 0
+          ? defaults.targetClasses
+          : parseClassListInput(defaults.className || '');
+      const rowClasses = parseClassListInput(rawClass);
+      const effectiveClasses =
+        rowClasses.length > 0 ? rowClasses : defaultClasses;
+
       parsedQuestions.push({
         tempId: `tbl-${parsedQuestions.length + 1}-${r}-${Math.random()
           .toString(36)
@@ -558,6 +594,11 @@ export async function parseWordDocxFile(
         rowLabel: rawNo || `Baris ${r}`,
         isExample,
         subject: rawSubject || defaults.subject.trim() || 'Umum',
+        className:
+          effectiveClasses.length > 0
+            ? effectiveClasses.join(', ')
+            : 'Semua Kelas',
+        targetClasses: effectiveClasses,
         type,
         prompt: finalPrompt,
         imageData,
@@ -588,6 +629,7 @@ export async function parseWordDocxFile(
       imageData: string | null;
       correctAnswer: string;
       type: QuestionType | null;
+      className: string;
       points: number;
       rowLabel: string;
     } | null = null;
@@ -617,11 +659,24 @@ export async function parseWordDocxFile(
         correctAnswer: finalKey,
       });
 
+      const defaultClasses =
+        defaults.targetClasses && defaults.targetClasses.length > 0
+          ? defaults.targetClasses
+          : parseClassListInput(defaults.className || '');
+      const paraClasses = parseClassListInput(current.className);
+      const effectiveClasses =
+        paraClasses.length > 0 ? paraClasses : defaultClasses;
+
       parsedQuestions.push({
         tempId: `para-${parsedQuestions.length + 1}`,
         rowLabel: current.rowLabel,
         isExample: false,
         subject: defaults.subject.trim() || 'Umum',
+        className:
+          effectiveClasses.length > 0
+            ? effectiveClasses.join(', ')
+            : 'Semua Kelas',
+        targetClasses: effectiveClasses,
         type,
         prompt: promptText,
         imageData: current.imageData,
@@ -652,6 +707,7 @@ export async function parseWordDocxFile(
           imageData: pImage,
           correctAnswer: '',
           type: null,
+          className: '',
           points: 10,
         };
         continue;
@@ -685,6 +741,12 @@ export async function parseWordDocxFile(
       const typeMatch = text.match(/^(?:Tipe\s*Soal|Tipe)\s*[:=]\s*(.+)$/i);
       if (typeMatch) {
         current.type = normalizeQuestionType(typeMatch[1]);
+        continue;
+      }
+
+      const classMatch = text.match(/^(?:Kelas|Rombel|Class)\s*[:=]\s*(.+)$/i);
+      if (classMatch) {
+        current.className = classMatch[1].trim();
         continue;
       }
 

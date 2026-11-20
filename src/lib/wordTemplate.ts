@@ -112,7 +112,7 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
             spacing: { after: 50 },
             children: [
               new TextRun({
-                text: '2. Kolom "Tipe Soal" isi dengan: PG, Benar / Salah, Isian Singkat, atau Uraian.',
+                text: '2. Kolom "Tipe Soal" isi dengan: PG, Benar / Salah, Isian Singkat, atau Uraian. Kolom "Kelas" isi sesuai kelas siswa (bisa lebih dari satu dipisah koma, misal: XII IPA 1, XII IPA 2) atau kosongkan untuk "Semua Kelas".',
                 size: 19,
               }),
             ],
@@ -151,6 +151,7 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                 children: [
                   'No',
                   'Tipe Soal',
+                  'Kelas',
                   'Rumusan Soal & Gambar',
                   'Opsi Jawaban (Khusus PG)',
                   'Kunci / Rubrik',
@@ -180,6 +181,7 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                 [
                   '1 (Contoh)',
                   'PG',
+                  'XII IPA 1',
                   'Perangkat keras jaringan yang berfungsi meneruskan paket data antar segmen jaringan yang berbeda adalah...',
                   'A. Router\nB. Switch\nC. Hub\nD. Repeater',
                   'A',
@@ -188,6 +190,7 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                 [
                   '2 (Contoh)',
                   'Benar / Salah',
+                  'XII IPA 1',
                   'Protokol HTTPS mengenkripsi pertukaran data antara peramban (browser) dan server.',
                   '-',
                   'BENAR',
@@ -196,6 +199,7 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                 [
                   '3 (Contoh)',
                   'Isian Singkat',
+                  'XII IPA 2',
                   'Perintah SQL untuk menambahkan baris data baru ke dalam tabel adalah ____.',
                   '-',
                   'INSERT,INSERT INTO',
@@ -204,17 +208,18 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                 [
                   '4 (Contoh)',
                   'Uraian',
+                  'Semua Kelas',
                   'Jelaskan perbedaan antara Primary Key dan Foreign Key pada basis data relasional!',
                   '-',
                   'Primary key bernilai unik tiap baris; Foreign key merujuk primary key tabel lain.',
                   '20',
                 ],
-                ['5', 'PG', '', 'A. \nB. \nC. \nD. ', '', '10'],
-                ['6', 'PG', '', 'A. \nB. \nC. \nD. ', '', '10'],
-                ['7', 'Benar / Salah', '', '-', '', '10'],
-                ['8', 'Isian Singkat', '', '-', '', '10'],
-                ['9', 'Uraian', '', '-', '', '20'],
-                ['10', 'PG', '', 'A. \nB. \nC. \nD. ', '', '10'],
+                ['5', 'PG', '', '', 'A. \nB. \nC. \nD. ', '', '10'],
+                ['6', 'PG', '', '', 'A. \nB. \nC. \nD. ', '', '10'],
+                ['7', 'Benar / Salah', '', '', '-', '', '10'],
+                ['8', 'Isian Singkat', '', '', '-', '', '10'],
+                ['9', 'Uraian', '', '', '-', '', '20'],
+                ['10', 'PG', '', '', 'A. \nB. \nC. \nD. ', '', '10'],
               ].map(
                 (row) =>
                   new TableRow({
@@ -228,16 +233,18 @@ export async function downloadWordTemplate(schoolName?: string): Promise<void> {
                           width: {
                             size:
                               colIdx === 0
-                                ? 8
+                                ? 7
                                 : colIdx === 1
-                                ? 13
+                                ? 11
                                 : colIdx === 2
-                                ? 30
+                                ? 11
                                 : colIdx === 3
-                                ? 23
+                                ? 27
                                 : colIdx === 4
-                                ? 18
-                                : 8,
+                                ? 21
+                                : colIdx === 5
+                                ? 16
+                                : 7,
                             type: WidthType.PERCENTAGE,
                           },
                           children: cellText.split('\n').map(

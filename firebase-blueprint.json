@@ -109,6 +109,8 @@
         "teacherName": { "type": "string", "minLength": 1, "maxLength": 120 },
         "teacherUsername": { "type": "string", "minLength": 1, "maxLength": 64 },
         "subject": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 80 },
+        "targetClasses": { "type": "array" },
         "type": { "type": "string", "enum": ["pg", "isian", "benar_salah", "uraian"] },
         "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "imageData": { "type": "string", "maxLength": 750000 },

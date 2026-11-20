@@ -12,6 +12,7 @@ import {
   Square,
   Trash2,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import { api } from '../lib/api';
@@ -32,6 +33,24 @@ const DEFAULT_OPTIONS: QuestionOption[] = [
   { key: 'C', text: '' },
   { key: 'D', text: '' },
 ];
+
+function getQuestionClasses(item: {
+  targetClasses?: string[];
+  className?: string;
+}): string[] {
+  if (Array.isArray(item.targetClasses) && item.targetClasses.length > 0) {
+    return item.targetClasses
+      .map((c) => c.trim())
+      .filter((c) => c && c.toLowerCase() !== 'semua kelas');
+  }
+  if (item.className) {
+    return item.className
+      .split(/[,;]+/)
+      .map((c) => c.trim())
+      .filter((c) => c && c.toLowerCase() !== 'semua kelas');
+  }
+  return [];
+}
 
 async function compressImageFile(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
@@ -86,10 +105,12 @@ async function compressImageFile(file: File): Promise<string> {
 export function QuestionBankView({ user }: { user: AuthUser }) {
   const isSuperAdmin = user.role === 'super_admin';
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
+  const [studentClasses, setStudentClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | QuestionType>('all');
+  const [classFilter, setClassFilter] = useState<string>('all');
   const [teacherFilter, setTeacherFilter] = useState<string>('all');
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -98,6 +119,8 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const [formError, setFormError] = useState<string | null>(null);
 
   const [subject, setSubject] = useState('Informatika & Literasi Digital');
+  const [targetClasses, setTargetClasses] = useState<string[]>([]);
+  const [customClassInput, setCustomClassInput] = useState('');
   const [type, setType] = useState<QuestionType>('pg');
   const [prompt, setPrompt] = useState('');
   const [imageData, setImageData] = useState<string>('');
@@ -113,6 +136,8 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const [importSubject, setImportSubject] = useState(
     'Informatika & Literasi Digital'
   );
+  const [importTargetClasses, setImportTargetClasses] = useState<string[]>([]);
+  const [importCustomClassInput, setImportCustomClassInput] = useState('');
   const [importDifficulty, setImportDifficulty] = useState<
     'mudah' | 'sedang' | 'sulit'
   >('sedang');
@@ -130,10 +155,14 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.request<{ questions: QuestionItem[] }>(
-        '/api/teacher/questions'
-      );
-      setQuestions(res.questions);
+      const [qRes, classRes] = await Promise.all([
+        api.request<{ questions: QuestionItem[] }>('/api/teacher/questions'),
+        api
+          .request<{ classes: string[] }>('/api/teacher/classes')
+          .catch(() => ({ classes: [] })),
+      ]);
+      setQuestions(qRes.questions);
+      setStudentClasses(classRes.classes || []);
     } catch (err: any) {
       setError(err.message || 'Gagal memuat bank soal.');
     } finally {
@@ -144,6 +173,26 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   useEffect(() => {
     loadQuestions();
   }, []);
+
+  const classOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of studentClasses) {
+      const clean = c.trim();
+      if (clean && clean.toLowerCase() !== 'semua kelas') set.add(clean);
+    }
+    for (const q of questions) {
+      for (const cls of getQuestionClasses(q)) {
+        set.add(cls);
+      }
+    }
+    for (const cls of targetClasses) {
+      if (cls.trim()) set.add(cls.trim());
+    }
+    for (const cls of importTargetClasses) {
+      if (cls.trim()) set.add(cls.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'id'));
+  }, [studentClasses, questions, targetClasses, importTargetClasses]);
 
   const teacherOptions = useMemo(() => {
     const map = new Map<number, { id: number; name: string; username: string }>();
@@ -163,22 +212,43 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     const q = search.trim().toLowerCase();
     return questions.filter((item) => {
       if (typeFilter !== 'all' && item.type !== typeFilter) return false;
+      const itemClasses = getQuestionClasses(item);
+      if (classFilter === 'Semua Kelas') {
+        if (itemClasses.length > 0) return false;
+      } else if (classFilter !== 'all') {
+        if (
+          !itemClasses.some(
+            (c) => c.toLowerCase() === classFilter.trim().toLowerCase()
+          )
+        ) {
+          return false;
+        }
+      }
       if (isSuperAdmin && teacherFilter !== 'all' && String(item.teacherId) !== teacherFilter) {
         return false;
       }
       if (!q) return true;
+      const classLabel =
+        itemClasses.length > 0 ? itemClasses.join(' ') : 'semua kelas';
       return (
         item.prompt.toLowerCase().includes(q) ||
         item.subject.toLowerCase().includes(q) ||
+        classLabel.toLowerCase().includes(q) ||
         (item.teacherName || '').toLowerCase().includes(q) ||
         (item.teacherUsername || '').toLowerCase().includes(q)
       );
     });
-  }, [questions, search, typeFilter, isSuperAdmin, teacherFilter]);
+  }, [questions, search, typeFilter, classFilter, isSuperAdmin, teacherFilter]);
 
   const openCreateModal = () => {
     setEditingId(null);
     setSubject('Informatika & Literasi Digital');
+    setTargetClasses(
+      classFilter !== 'all' && classFilter !== 'Semua Kelas'
+        ? [classFilter]
+        : []
+    );
+    setCustomClassInput('');
     setType('pg');
     setPrompt('');
     setImageData('');
@@ -199,6 +269,8 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const openEditModal = (item: QuestionItem) => {
     setEditingId(item.id);
     setSubject(item.subject);
+    setTargetClasses(getQuestionClasses(item));
+    setCustomClassInput('');
     setType(item.type);
     setPrompt(item.prompt);
     const img = item.imageData || '';
@@ -219,6 +291,35 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     setDifficulty(item.difficulty);
     setFormError(null);
     setModalOpen(true);
+  };
+
+  const toggleFormTargetClass = (cls: string) => {
+    const clean = cls.trim();
+    if (!clean) return;
+    setTargetClasses((prev) => {
+      const exists = prev.some((c) => c.toLowerCase() === clean.toLowerCase());
+      return exists
+        ? prev.filter((c) => c.toLowerCase() !== clean.toLowerCase())
+        : [...prev, clean];
+    });
+  };
+
+  const handleAddFormCustomClass = () => {
+    const parts = customClassInput
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s && s.toLowerCase() !== 'semua kelas');
+    if (parts.length === 0) return;
+    setTargetClasses((prev) => {
+      const next = [...prev];
+      for (const p of parts) {
+        if (!next.some((c) => c.toLowerCase() === p.toLowerCase())) {
+          next.push(p);
+        }
+      }
+      return next;
+    });
+    setCustomClassInput('');
   };
 
   const handleTypeChange = (nextType: QuestionType) => {
@@ -276,6 +377,9 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     try {
       const payload = {
         subject,
+        targetClasses,
+        className:
+          targetClasses.length > 0 ? targetClasses.join(', ') : 'Semua Kelas',
         type,
         prompt,
         imageData: imageData || null,
@@ -316,6 +420,12 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const openImportModal = () => {
     setImportError(null);
     setImportFileName('');
+    setImportTargetClasses(
+      classFilter !== 'all' && classFilter !== 'Semua Kelas'
+        ? [classFilter]
+        : []
+    );
+    setImportCustomClassInput('');
     setRawImportFile(null);
     setParsedItems([]);
     setSelectedImportIds([]);
@@ -333,6 +443,7 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const processSelectedWordFile = async (
     file: File,
     subj: string,
+    defaultClsList: string[],
     diff: 'mudah' | 'sedang' | 'sulit',
     shouldSkipExamples: boolean
   ) => {
@@ -341,6 +452,7 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     try {
       const result = await parseWordDocxFile(file, {
         subject: subj,
+        targetClasses: defaultClsList,
         difficulty: diff,
       });
       setParsedItems(result.questions);
@@ -363,7 +475,93 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     if (!file) return;
     setRawImportFile(file);
     setImportFileName(file.name);
-    await processSelectedWordFile(file, importSubject, importDifficulty, skipExamples);
+    await processSelectedWordFile(
+      file,
+      importSubject,
+      importTargetClasses,
+      importDifficulty,
+      skipExamples
+    );
+  };
+
+  const applyClassesToAllParsed = (nextClasses: string[]) => {
+    const label =
+      nextClasses.length > 0 ? nextClasses.join(', ') : 'Semua Kelas';
+    setParsedItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        targetClasses: nextClasses,
+        className: label,
+      }))
+    );
+  };
+
+  const toggleImportDefaultClass = (cls: string) => {
+    const clean = cls.trim();
+    if (!clean) return;
+    setImportTargetClasses((prev) => {
+      const exists = prev.some((c) => c.toLowerCase() === clean.toLowerCase());
+      const next = exists
+        ? prev.filter((c) => c.toLowerCase() !== clean.toLowerCase())
+        : [...prev, clean];
+      if (parsedItems.length > 0) {
+        applyClassesToAllParsed(next);
+      }
+      return next;
+    });
+  };
+
+  const handleAddImportCustomClass = () => {
+    const parts = importCustomClassInput
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s && s.toLowerCase() !== 'semua kelas');
+    if (parts.length === 0) return;
+    setImportTargetClasses((prev) => {
+      const next = [...prev];
+      for (const p of parts) {
+        if (!next.some((c) => c.toLowerCase() === p.toLowerCase())) {
+          next.push(p);
+        }
+      }
+      if (parsedItems.length > 0) {
+        applyClassesToAllParsed(next);
+      }
+      return next;
+    });
+    setImportCustomClassInput('');
+  };
+
+  const toggleImportedItemClass = (tempId: string, cls: string) => {
+    const clean = cls.trim();
+    if (!clean) return;
+    setParsedItems((prev) =>
+      prev.map((item) => {
+        if (item.tempId !== tempId) return item;
+        const current = getQuestionClasses(item);
+        const exists = current.some(
+          (c) => c.toLowerCase() === clean.toLowerCase()
+        );
+        const next = exists
+          ? current.filter((c) => c.toLowerCase() !== clean.toLowerCase())
+          : [...current, clean];
+        return {
+          ...item,
+          targetClasses: next,
+          className: next.length > 0 ? next.join(', ') : 'Semua Kelas',
+        };
+      })
+    );
+  };
+
+  const clearImportedItemClasses = (tempId: string) => {
+    setParsedItems((prev) =>
+      prev.map((item) =>
+        item.tempId === tempId
+          ? { ...item, targetClasses: [], className: 'Semua Kelas' }
+          : item
+      )
+    );
   };
 
   const handleToggleSkipExamples = (nextSkip: boolean) => {
@@ -405,16 +603,26 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
         {
           method: 'POST',
           body: JSON.stringify({
-            questions: chosen.map((item) => ({
-              subject: importSubject.trim() || item.subject,
-              type: item.type,
-              prompt: item.prompt,
-              imageData: item.imageData,
-              options: item.type === 'pg' ? item.options : undefined,
-              correctAnswer: item.correctAnswer,
-              points: item.points,
-              difficulty: importDifficulty,
-            })),
+            questions: chosen.map((item) => {
+              const rowClasses = getQuestionClasses(item);
+              const finalClasses =
+                rowClasses.length > 0 ? rowClasses : importTargetClasses;
+              return {
+                subject: importSubject.trim() || item.subject,
+                targetClasses: finalClasses,
+                className:
+                  finalClasses.length > 0
+                    ? finalClasses.join(', ')
+                    : 'Semua Kelas',
+                type: item.type,
+                prompt: item.prompt,
+                imageData: item.imageData,
+                options: item.type === 'pg' ? item.options : undefined,
+                correctAnswer: item.correctAnswer,
+                points: item.points,
+                difficulty: importDifficulty,
+              };
+            }),
           }),
         }
       );
@@ -504,6 +712,20 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
             />
           </div>
 
+          <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+          >
+            <option value="all">Semua Kelas</option>
+            <option value="Semua Kelas">Umum (Semua Kelas)</option>
+            {classOptions.map((cls) => (
+              <option key={cls} value={cls}>
+                Kelas {cls}
+              </option>
+            ))}
+          </select>
+
           {isSuperAdmin && (
             <select
               value={teacherFilter}
@@ -579,6 +801,25 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
                   <span className="font-medium text-slate-800">{TYPE_LABELS[q.type]}</span>
                   <span aria-hidden="true">·</span>
                   <span>{q.subject}</span>
+                  <span aria-hidden="true">·</span>
+                  {(() => {
+                    const clsList = getQuestionClasses(q);
+                    if (clsList.length === 0) {
+                      return (
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">
+                          Semua Kelas
+                        </span>
+                      );
+                    }
+                    return clsList.map((cls) => (
+                      <span
+                        key={cls}
+                        className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-semibold"
+                      >
+                        {cls}
+                      </span>
+                    ));
+                  })()}
                   <span aria-hidden="true">·</span>
                   <span>Bobot {q.points} poin</span>
                   <span aria-hidden="true">·</span>
@@ -718,6 +959,100 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
                     <option value="isian">Isian Singkat</option>
                     <option value="uraian">Uraian / Esai</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-700" />
+                    <span className="text-xs font-bold text-slate-900">
+                      Pilih Kelas (Otomatis dari Akun Siswa)
+                    </span>
+                    <span className="text-xs font-semibold text-blue-700">
+                      {targetClasses.length === 0
+                        ? 'Semua Kelas (Umum)'
+                        : `${targetClasses.length} Kelas Dipilih`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {classOptions.length > 0 &&
+                      targetClasses.length < classOptions.length && (
+                        <button
+                          type="button"
+                          onClick={() => setTargetClasses(classOptions)}
+                          className="text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
+                        >
+                          Pilih Semua
+                        </button>
+                      )}
+                    {targetClasses.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setTargetClasses([])}
+                        className="text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                      >
+                        Atur ke Semua Kelas
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {classOptions.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {classOptions.map((cls) => {
+                      const checked = targetClasses.some(
+                        (c) => c.toLowerCase() === cls.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={cls}
+                          type="button"
+                          onClick={() => toggleFormTargetClass(cls)}
+                          className={`px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                            checked
+                              ? 'bg-blue-50 border-blue-600 text-blue-800'
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'
+                          }`}
+                        >
+                          {checked ? (
+                            <CheckSquare className="w-4 h-4 text-blue-700 shrink-0" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                          )}
+                          <span className="truncate">{cls}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">
+                    Belum ada kelas di Akun Siswa. Tambahkan nama kelas di bawah ini atau buat akun siswa terlebih dahulu.
+                  </p>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={customClassInput}
+                    onChange={(e) => setCustomClassInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddFormCustomClass();
+                      }
+                    }}
+                    placeholder="Tambah kelas lain (bisa pisah koma, misal: XII IPA 1, XII IPA 2)"
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddFormCustomClass}
+                    className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah Kelas</span>
+                  </button>
                 </div>
               </div>
 
@@ -1021,6 +1356,110 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
               </div>
             </div>
 
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-700" />
+                  <span className="text-xs font-bold text-slate-900">
+                    Pilih Kelas Tujuan Soal (Otomatis dari Akun Siswa — Bisa Pilih Banyak)
+                  </span>
+                  <span className="text-xs font-semibold text-blue-700">
+                    {importTargetClasses.length === 0
+                      ? 'Semua Kelas (Umum)'
+                      : `${importTargetClasses.length} Kelas Dipilih`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {classOptions.length > 0 &&
+                    importTargetClasses.length < classOptions.length && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImportTargetClasses(classOptions);
+                          if (parsedItems.length > 0) {
+                            applyClassesToAllParsed(classOptions);
+                          }
+                        }}
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
+                      >
+                        Pilih Semua
+                      </button>
+                    )}
+                  {importTargetClasses.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportTargetClasses([]);
+                        if (parsedItems.length > 0) {
+                          applyClassesToAllParsed([]);
+                        }
+                      }}
+                      className="text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                    >
+                      Atur ke Semua Kelas
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {classOptions.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {classOptions.map((cls) => {
+                    const checked = importTargetClasses.some(
+                      (c) => c.toLowerCase() === cls.toLowerCase()
+                    );
+                    return (
+                      <button
+                        key={cls}
+                        type="button"
+                        onClick={() => toggleImportDefaultClass(cls)}
+                        className={`px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-2 text-left transition-colors cursor-pointer ${
+                          checked
+                            ? 'bg-blue-50 border-blue-600 text-blue-800'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-blue-400'
+                        }`}
+                      >
+                        {checked ? (
+                          <CheckSquare className="w-4 h-4 text-blue-700 shrink-0" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                        )}
+                        <span className="truncate">{cls}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 italic">
+                  Belum ada kelas terdaftar di Akun Siswa. Tambahkan nama kelas di bawah ini jika ingin menentukan kelas tertentu.
+                </p>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <input
+                  type="text"
+                  value={importCustomClassInput}
+                  onChange={(e) => setImportCustomClassInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddImportCustomClass();
+                    }
+                  }}
+                  placeholder="Tambah kelas lain (bisa pisah koma, misal: XII IPA 1, XII IPA 2)"
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddImportCustomClass}
+                  className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Kelas</span>
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <label className="block border-2 border-dashed border-slate-300 hover:border-blue-600 bg-slate-50 hover:bg-blue-50/40 rounded-xl p-6 text-center cursor-pointer transition-colors">
                 <input
@@ -1131,24 +1570,69 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
                               )}
                             </button>
                             <div className="flex-1 min-w-0 space-y-1.5">
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                <span className="font-semibold text-blue-700">
-                                  {item.rowLabel}
-                                </span>
-                                <span aria-hidden="true">·</span>
-                                <span className="font-semibold text-slate-800">
-                                  {TYPE_LABELS[item.type]}
-                                </span>
-                                <span aria-hidden="true">·</span>
-                                <span>Bobot {item.points} poin</span>
-                                {item.imageData && (
-                                  <>
-                                    <span aria-hidden="true">·</span>
-                                    <span className="text-blue-700 font-medium">
-                                      Gambar Terdeteksi
-                                    </span>
-                                  </>
-                                )}
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-blue-700">
+                                    {item.rowLabel}
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="font-semibold text-slate-800">
+                                    {TYPE_LABELS[item.type]}
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>Bobot {item.points} poin</span>
+                                  {item.imageData && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="text-blue-700 font-medium">
+                                        Gambar Terdeteksi
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                <span className="text-slate-500 font-medium">Kelas:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => clearImportedItemClasses(item.tempId)}
+                                  className={`px-2 py-0.5 rounded border text-xs font-medium cursor-pointer ${
+                                    getQuestionClasses(item).length === 0
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'
+                                  }`}
+                                >
+                                  Semua Kelas
+                                </button>
+                                {Array.from(
+                                  new Set([
+                                    ...classOptions,
+                                    ...getQuestionClasses(item),
+                                  ])
+                                )
+                                  .sort((a, b) => a.localeCompare(b, 'id'))
+                                  .map((cls) => {
+                                    const active = getQuestionClasses(item).some(
+                                      (c) => c.toLowerCase() === cls.toLowerCase()
+                                    );
+                                    return (
+                                      <button
+                                        key={cls}
+                                        type="button"
+                                        onClick={() =>
+                                          toggleImportedItemClass(item.tempId, cls)
+                                        }
+                                        className={`px-2 py-0.5 rounded border text-xs font-semibold cursor-pointer transition-colors ${
+                                          active
+                                            ? 'bg-blue-600 text-white border-blue-600'
+                                            : 'bg-white text-slate-700 border-slate-300 hover:border-blue-400'
+                                        }`}
+                                      >
+                                        {cls}
+                                      </button>
+                                    );
+                                  })}
                               </div>
 
                               <p className="text-xs text-slate-900 whitespace-pre-wrap">
