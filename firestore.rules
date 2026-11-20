@@ -94,7 +94,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'schoolName', 'examTheme', 'academicYear', 'footerText',
-        'studentCount', 'classCount', 'examCount', 'completedSessionCount', 'updatedAt'
+        'studentCount', 'classCount', 'examCount', 'completedSessionCount', 'superAdminUsernameHash', 'updatedAt'
       ]) &&
       data.schoolName is string && data.schoolName.size() >= 2 && data.schoolName.size() <= 120 &&
       data.examTheme is string && data.examTheme.size() >= 2 && data.examTheme.size() <= 120 &&
@@ -104,6 +104,7 @@ service cloud.firestore {
       data.classCount is int && data.classCount >= 0 &&
       data.examCount is int && data.examCount >= 0 &&
       data.completedSessionCount is int && data.completedSessionCount >= 0 &&
+      (!('superAdminUsernameHash' in data) || (data.superAdminUsernameHash is string && data.superAdminUsernameHash.size() <= 128)) &&
       data.updatedAt is timestamp;
     }
 
@@ -430,7 +431,7 @@ service cloud.firestore {
         isValidPortalSettings(incoming()) && incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'schoolName', 'examTheme', 'academicYear', 'footerText',
-          'studentCount', 'classCount', 'examCount', 'completedSessionCount', 'updatedAt'
+          'studentCount', 'classCount', 'examCount', 'completedSessionCount', 'superAdminUsernameHash', 'updatedAt'
         ]);
       allow delete: if false;
     }

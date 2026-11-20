@@ -1,8 +1,11 @@
 import {
+  EmailAuthProvider,
   User as FirebaseUser,
   createUserWithEmailAndPassword,
+  reauthenticateWithCredential,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
 } from 'firebase/auth';
 import {
   Timestamp,
@@ -30,6 +33,7 @@ import {
 const BOOTSTRAP_ADMIN_EMAIL = 'izanalhuda@gmail.com';
 const SUPER_ADMIN_INTERNAL_EMAIL = 'webadmin@mkccbt.local';
 const INTERNAL_AUTH_DOMAIN = 'mkccbt.local';
+const SUPER_ADMIN_USERNAME_SALT = 'mkccbt:super_admin_username:v1:';
 
 function toInternalAuthEmail(username: string): string {
   const clean = username
@@ -37,6 +41,11 @@ function toInternalAuthEmail(username: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, '');
   return `${clean}@${INTERNAL_AUTH_DOMAIN}`;
+}
+
+async function hashSuperAdminUsername(username: string): Promise<string> {
+  const clean = username.trim().toLowerCase();
+  return sha256Hex(`${SUPER_ADMIN_USERNAME_SALT}${clean}`);
 }
 
 function toStudentAuthPassword(pin: string): string {
@@ -679,7 +688,36 @@ export async function loginWithUsernameAndPassword(params: {
     );
   }
 
-  const internalEmail = toInternalAuthEmail(cleanUsername);
+  let internalEmail = toInternalAuthEmail(cleanUsername);
+  let storedSuperAdminUsernameHash = '';
+
+  if (params.role === 'super_admin' || params.role === 'guru') {
+    try {
+      const portalSnap = await getDoc(doc(db, 'portalSettings', 'main'));
+      if (portalSnap.exists()) {
+        const rawHash = portalSnap.data().superAdminUsernameHash;
+        if (typeof rawHash === 'string' && rawHash.trim()) {
+          storedSuperAdminUsernameHash = rawHash.trim();
+        }
+      }
+    } catch {
+      // Ignore fallback to default email mapping
+    }
+
+    if (storedSuperAdminUsernameHash) {
+      const enteredHash = await hashSuperAdminUsername(cleanUsername);
+      if (enteredHash === storedSuperAdminUsernameHash) {
+        internalEmail = SUPER_ADMIN_INTERNAL_EMAIL;
+      } else if (internalEmail === SUPER_ADMIN_INTERNAL_EMAIL) {
+        throw new Error(
+          params.role === 'super_admin'
+            ? 'Username atau kata sandi Super Admin salah.'
+            : 'Username atau kata sandi guru salah.'
+        );
+      }
+    }
+  }
+
   const fbPassword =
     params.role === 'siswa' ? toStudentAuthPassword(rawSecret) : rawSecret;
 
@@ -698,6 +736,7 @@ export async function loginWithUsernameAndPassword(params: {
     }
 
     if (
+      !storedSuperAdminUsernameHash &&
       (code === 'auth/user-not-found' || code === 'auth/invalid-credential') &&
       cleanUsername === 'webadmin' &&
       rawSecret === 'webadmin123'
@@ -843,6 +882,10 @@ async function refreshPortalCountersIfAdmin() {
       classCount: classSet.size,
       examCount: examsSnap.size,
       completedSessionCount: completed,
+      ...(typeof existing.superAdminUsernameHash === 'string' &&
+      existing.superAdminUsernameHash
+        ? { superAdminUsernameHash: existing.superAdminUsernameHash }
+        : {}),
       updatedAt: serverTimestamp(),
     });
   } catch {
@@ -1325,6 +1368,10 @@ export async function dispatchFirestoreApi<T>(
         classCount: Number(cur.classCount) || 0,
         examCount: Number(cur.examCount) || 0,
         completedSessionCount: Number(cur.completedSessionCount) || 0,
+        ...(typeof cur.superAdminUsernameHash === 'string' &&
+        cur.superAdminUsernameHash
+          ? { superAdminUsernameHash: cur.superAdminUsernameHash }
+          : {}),
         updatedAt: serverTimestamp(),
       }).catch((err) =>
         handleFirestoreError(err, OperationType.WRITE, 'portalSettings/main')
@@ -1341,6 +1388,149 @@ export async function dispatchFirestoreApi<T>(
         },
       } as T;
     }
+  }
+
+  // 2b. Super Admin: Update own username & password
+  if (pathname === '/api/admin/super-admin-credentials' && method === 'PUT') {
+    if (actor.role !== 'super_admin') {
+      throw new Error('Hanya Super Admin yang dapat mengubah pengaturan ini.');
+    }
+    const fbUser = auth.currentUser;
+    if (!fbUser || !fbUser.email) {
+      throw new Error('Sesi akun tidak ditemukan. Silakan masuk kembali.');
+    }
+    const hasPasswordProvider = fbUser.providerData.some(
+      (p) => p.providerId === 'password'
+    );
+    if (!hasPasswordProvider) {
+      throw new Error(
+        'Akun ini tidak menggunakan login Username & Kata Sandi.'
+      );
+    }
+
+    const rawUsername = String(body?.username ?? '')
+      .trim()
+      .toLowerCase();
+    const cleanName =
+      sanitizeText(body?.name ?? actor.name, 100) || actor.name;
+    const currentPassword = String(body?.currentPassword ?? '');
+    const newPassword = String(body?.newPassword ?? '');
+
+    if (!/^[a-z0-9._-]{3,64}$/.test(rawUsername)) {
+      throw new Error(
+        'Username minimal 3 karakter dan hanya boleh huruf kecil, angka, titik (.), garis bawah (_), atau strip (-).'
+      );
+    }
+    if (!currentPassword.trim()) {
+      throw new Error('Kata sandi saat ini wajib diisi untuk verifikasi.');
+    }
+    if (newPassword && newPassword.trim().length < 6) {
+      throw new Error('Kata sandi baru minimal 6 karakter.');
+    }
+
+    try {
+      const cred = EmailAuthProvider.credential(fbUser.email, currentPassword);
+      await reauthenticateWithCredential(fbUser, cred);
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (
+        code === 'auth/wrong-password' ||
+        code === 'auth/invalid-credential'
+      ) {
+        throw new Error('Kata sandi saat ini salah.');
+      }
+      if (code === 'auth/too-many-requests') {
+        throw new Error(
+          'Terlalu banyak percobaan verifikasi. Tunggu sebentar lalu coba lagi.'
+        );
+      }
+      throw new Error(
+        err?.message || 'Gagal memverifikasi kata sandi saat ini.'
+      );
+    }
+
+    if (rawUsername !== actor.username.toLowerCase()) {
+      const [usersSnap, invSnap, rosterSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'teacherInvites')),
+        getDocs(collection(db, 'studentRoster')),
+      ]);
+      const usedInUsers = usersSnap.docs.some(
+        (d) =>
+          d.id !== fbUser.uid &&
+          String(d.data().username || '').trim().toLowerCase() === rawUsername
+      );
+      const usedInInvites = invSnap.docs.some(
+        (d) =>
+          String(d.data().username || '').trim().toLowerCase() === rawUsername
+      );
+      const usedInRoster = rosterSnap.docs.some(
+        (d) =>
+          String(d.data().username || '').trim().toLowerCase() === rawUsername
+      );
+      if (usedInUsers || usedInInvites || usedInRoster) {
+        throw new Error(
+          'Username tersebut sudah digunakan oleh akun guru atau siswa.'
+        );
+      }
+    }
+
+    const trimmedNewPassword = newPassword.trim();
+    if (trimmedNewPassword) {
+      try {
+        await updatePassword(fbUser, trimmedNewPassword);
+      } catch (err: any) {
+        if (err?.code === 'auth/weak-password') {
+          throw new Error(
+            'Kata sandi baru terlalu lemah. Gunakan minimal 6 karakter.'
+          );
+        }
+        throw new Error(err?.message || 'Gagal memperbarui kata sandi.');
+      }
+    }
+
+    await updateDoc(doc(db, 'users', fbUser.uid), {
+      username: rawUsername,
+      name: cleanName,
+      updatedAt: serverTimestamp(),
+    }).catch((err) =>
+      handleFirestoreError(err, OperationType.UPDATE, `users/${fbUser.uid}`)
+    );
+
+    const usernameHash = await hashSuperAdminUsername(rawUsername);
+    const portalSnap = await getDoc(doc(db, 'portalSettings', 'main'));
+    if (portalSnap.exists()) {
+      await updateDoc(doc(db, 'portalSettings', 'main'), {
+        superAdminUsernameHash: usernameHash,
+        updatedAt: serverTimestamp(),
+      }).catch((err) =>
+        handleFirestoreError(err, OperationType.UPDATE, 'portalSettings/main')
+      );
+    } else {
+      await setDoc(doc(db, 'portalSettings', 'main'), {
+        schoolName: 'SDN 09 SADANIANG',
+        examTheme: 'Tes Akhir Semester',
+        academicYear: 'Tahun Pelajaran 2026/2027',
+        footerText: '© Fikrul MKC · MKC CBT',
+        studentCount: 0,
+        classCount: 0,
+        examCount: 0,
+        completedSessionCount: 0,
+        superAdminUsernameHash: usernameHash,
+        updatedAt: serverTimestamp(),
+      }).catch((err) =>
+        handleFirestoreError(err, OperationType.WRITE, 'portalSettings/main')
+      );
+    }
+
+    return {
+      user: {
+        ...actor,
+        username: rawUsername,
+        name: cleanName,
+      },
+      passwordChanged: Boolean(trimmedNewPassword),
+    } as T;
   }
 
   // 3. Super Admin: Teachers

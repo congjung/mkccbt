@@ -413,7 +413,7 @@ export function LoginView({
                   {role === 'siswa'
                     ? 'Gunakan Username/NIS dan PIN dari kartu peserta ujian. Jawaban tersimpan otomatis secara real-time.'
                     : role === 'super_admin'
-                    ? 'Akun default Super Admin: username "webadmin" dengan kata sandi "webadmin123".'
+                    ? 'Masuk menggunakan Username dan Kata Sandi Super Admin (default awal: webadmin / webadmin123).'
                     : 'Masuk dengan Username dan Kata Sandi yang telah dibuatkan oleh Super Admin.'}
                 </span>
               </div>

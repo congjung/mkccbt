@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   UserCog,
   Users,
@@ -25,6 +26,7 @@ export type TeacherTab =
   | 'audit-log'
   | 'teachers'
   | 'school-settings'
+  | 'super-admin-settings'
   | 'students';
 
 interface TeacherLayoutProps {
@@ -53,6 +55,12 @@ const NAV_ITEMS: Array<{
     id: 'school-settings',
     label: 'Pengaturan Sekolah',
     icon: Building2,
+    superAdminOnly: true,
+  },
+  {
+    id: 'super-admin-settings',
+    label: 'Pengaturan Super Admin',
+    icon: ShieldCheck,
     superAdminOnly: true,
   },
   { id: 'students', label: 'Akun Siswa', icon: Users },

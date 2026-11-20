@@ -13,6 +13,7 @@
         "classCount": { "type": "integer" },
         "examCount": { "type": "integer" },
         "completedSessionCount": { "type": "integer" },
+        "superAdminUsernameHash": { "type": "string", "maxLength": 128 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [

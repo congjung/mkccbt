@@ -9,6 +9,7 @@ import { ResultsView } from './components/ResultsView';
 import { SchoolSettingsView } from './components/SchoolSettingsView';
 import { StudentAccountsView } from './components/StudentAccountsView';
 import { StudentPortal } from './components/StudentPortal';
+import { SuperAdminSettingsView } from './components/SuperAdminSettingsView';
 import { TeacherAccountsView } from './components/TeacherAccountsView';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { TeacherLayout, TeacherTab } from './components/TeacherLayout';
@@ -168,6 +169,12 @@ export default function App() {
             );
             loadPortalInfo();
           }}
+        />
+      )}
+      {teacherTab === 'super-admin-settings' && user.role === 'super_admin' && (
+        <SuperAdminSettingsView
+          user={user}
+          onUserUpdated={(updated) => setUser(updated)}
         />
       )}
       {teacherTab === 'students' && <StudentAccountsView />}
