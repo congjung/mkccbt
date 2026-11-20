@@ -528,7 +528,7 @@ service cloud.firestore {
 
     match /questions/{questionId} {
       allow get: if isTeacher() && isValidId(questionId) &&
-        (isAdmin() || existing().teacherUid == request.auth.uid);
+        (isAdmin() || (resource != null && existing().teacherUid == request.auth.uid));
       allow list: if isVerified() && (isAdminByEmail() || resource.data.teacherUid == request.auth.uid);
       allow create: if isTeacher() && isValidId(questionId) &&
         isValidQuestion(incoming(), questionId) &&
@@ -572,7 +572,7 @@ service cloud.firestore {
 
     match /exams/{examId} {
       allow get: if isVerified() && isValidId(examId) &&
-        (existing().isPublished == true || existing().teacherUid == request.auth.uid || isAdmin());
+        (isAdmin() || (resource != null && (existing().isPublished == true || existing().teacherUid == request.auth.uid)));
       allow list: if isVerified() && (isAdminByEmail() || resource.data.teacherUid == request.auth.uid);
       allow create: if isTeacher() && isValidId(examId) &&
         isValidExam(incoming(), examId) &&
@@ -624,7 +624,7 @@ service cloud.firestore {
       }
 
       match /private/{docId} {
-        allow get: if isVerified() && isValidId(examId) && isValidId(docId) && (
+        allow get: if isVerified() && isValidId(examId) && isValidId(docId) && resource != null && (
           (docId == 'config' && isTeacher() && (isAdmin() || existing().teacherUid == request.auth.uid)) ||
           (docId == 'keys' && (
             (isTeacher() && (isAdmin() || existing().teacherUid == request.auth.uid)) ||
@@ -657,9 +657,15 @@ service cloud.firestore {
 
     match /examSessions/{sessionId} {
       allow get: if isVerified() && isValidId(sessionId) && (
-        existing().studentUid == request.auth.uid ||
-        existing().teacherUid == request.auth.uid ||
-        isAdmin()
+        isAdmin() ||
+        (resource == null &&
+          sessionId.matches('^exam_[0-9]+_[a-zA-Z0-9_\\-]+$') &&
+          sessionId.size() > request.auth.uid.size() + 6 &&
+          sessionId[sessionId.size() - request.auth.uid.size() - 1 : sessionId.size()] == '_' + request.auth.uid) ||
+        (resource != null && (
+          existing().studentUid == request.auth.uid ||
+          existing().teacherUid == request.auth.uid
+        ))
       );
       allow list: if isVerified() && (
         isAdminByEmail() ||
@@ -726,9 +732,11 @@ service cloud.firestore {
 
       match /answers/{answerId} {
         allow get: if isVerified() && isValidId(sessionId) && isValidId(answerId) && (
-          existing().studentUid == request.auth.uid ||
-          existing().teacherUid == request.auth.uid ||
-          isAdmin()
+          isAdmin() ||
+          (resource != null && (
+            existing().studentUid == request.auth.uid ||
+            existing().teacherUid == request.auth.uid
+          ))
         );
         allow list: if isVerified() && (
           isAdminByEmail() ||
@@ -768,8 +776,13 @@ service cloud.firestore {
     }
 
     match /violationLogs/{logId} {
-      allow get: if isVerified() && isValidId(logId) &&
-        (existing().studentUid == request.auth.uid || existing().teacherUid == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(logId) && (
+        isAdmin() ||
+        (resource != null && (
+          existing().studentUid == request.auth.uid ||
+          existing().teacherUid == request.auth.uid
+        ))
+      );
       allow list: if isVerified() && (
         isAdminByEmail() ||
         resource.data.studentUid == request.auth.uid ||
