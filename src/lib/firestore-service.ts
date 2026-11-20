@@ -1305,8 +1305,6 @@ export async function dispatchFirestoreApi<T>(
       const schoolName = sanitizeText(body?.schoolName, 120);
       const examTheme = sanitizeText(body?.examTheme, 120);
       const academicYear = sanitizeText(body?.academicYear || '', 80);
-      const footerText =
-        sanitizeText(body?.footerText || '', 120) || '© Fikrul MKC · MKC CBT';
       if (!schoolName || schoolName.length < 2) {
         throw new Error('Nama sekolah wajib diisi (minimal 2 karakter).');
       }
@@ -1315,6 +1313,9 @@ export async function dispatchFirestoreApi<T>(
       }
       const existingSnap = await getDoc(doc(db, 'portalSettings', 'main'));
       const cur = existingSnap.exists() ? existingSnap.data() : {};
+      const footerText =
+        (typeof cur.footerText === 'string' && cur.footerText.trim()) ||
+        '© Fikrul MKC · MKC CBT';
       await setDoc(doc(db, 'portalSettings', 'main'), {
         schoolName,
         examTheme,

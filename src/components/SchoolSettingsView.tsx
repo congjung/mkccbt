@@ -61,7 +61,6 @@ export function SchoolSettingsView({ onUpdated }: SchoolSettingsViewProps) {
             schoolName,
             examTheme,
             academicYear,
-            footerText,
           }),
         }
       );
@@ -84,7 +83,6 @@ export function SchoolSettingsView({ onUpdated }: SchoolSettingsViewProps) {
     setSchoolName('SDN 09 SADANIANG');
     setExamTheme('Tes Akhir Semester');
     setAcademicYear('Tahun Pelajaran 2026/2027');
-    setFooterText('© Fikrul MKC · MKC CBT');
     setSuccess(null);
     setError(null);
   };
@@ -217,7 +215,7 @@ export function SchoolSettingsView({ onUpdated }: SchoolSettingsViewProps) {
               </p>
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
                 Tahun Pelajaran / Keterangan
               </label>
@@ -227,20 +225,6 @@ export function SchoolSettingsView({ onUpdated }: SchoolSettingsViewProps) {
                 value={academicYear}
                 onChange={(e) => setAcademicYear(e.target.value)}
                 placeholder="Contoh: Tahun Pelajaran 2026/2027"
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Teks Hak Cipta / Footer Portal
-              </label>
-              <input
-                type="text"
-                maxLength={120}
-                value={footerText}
-                onChange={(e) => setFooterText(e.target.value)}
-                placeholder="Contoh: © Fikrul MKC · MKC CBT"
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
               />
             </div>
