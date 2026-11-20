@@ -1,0 +1,433 @@
+{
+  "entities": {
+    "PortalSettings": {
+      "title": "PortalSettings",
+      "description": "Public non-PII school branding and aggregate portal counters displayed on the login header and status panel.",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "examTheme": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "academicYear": { "type": "string", "maxLength": 80 },
+        "footerText": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "studentCount": { "type": "integer" },
+        "classCount": { "type": "integer" },
+        "examCount": { "type": "integer" },
+        "completedSessionCount": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "schoolName",
+        "examTheme",
+        "academicYear",
+        "footerText",
+        "studentCount",
+        "classCount",
+        "examCount",
+        "completedSessionCount",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator registry keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 150 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public-safe user profile without PII such as email or PIN.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["super_admin", "guru", "siswa"] },
+        "className": { "type": "string", "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "numericId", "username", "name", "role", "className", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII subcollection document storing user email.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 150 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "TeacherInvite": {
+      "title": "TeacherInvite",
+      "description": "Admin-approved teacher invitation keyed by sanitized email key.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "username": { "type": "string", "minLength": 3, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "minLength": 3, "maxLength": 150 },
+        "className": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "numericId", "username", "name", "email", "className", "createdByUid", "createdAt"]
+    },
+    "StudentRoster": {
+      "title": "StudentRoster",
+      "description": "Student roster entry managed by teachers for class filtering and exam card printing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "username": { "type": "string", "minLength": 3, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "className": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "accessPin": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "numericId", "username", "name", "className", "accessPin", "createdByUid", "createdAt"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Teacher question bank item including answer key (teacher/admin access only).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "teacherUsername": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "type": { "type": "string", "enum": ["pg", "isian", "benar_salah", "uraian"] },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "imageData": { "type": "string", "maxLength": 750000 },
+        "options": { "type": "array" },
+        "correctAnswer": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "points": { "type": "integer" },
+        "difficulty": { "type": "string", "enum": ["mudah", "sedang", "sulit"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "numericId",
+        "teacherUid",
+        "teacherName",
+        "teacherUsername",
+        "subject",
+        "type",
+        "prompt",
+        "imageData",
+        "options",
+        "correctAnswer",
+        "points",
+        "difficulty",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Exam configuration and Exam Mode policy.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "teacherUsername": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "examCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "durationMinutes": { "type": "integer" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "questionCount": { "type": "integer" },
+        "kkm": { "type": "integer" },
+        "shuffleQuestions": { "type": "boolean" },
+        "shuffleOptions": { "type": "boolean" },
+        "allowStudentViewResult": { "type": "boolean" },
+        "isPublished": { "type": "boolean" },
+        "requireFullscreen": { "type": "boolean" },
+        "detectTabSwitch": { "type": "boolean" },
+        "detectWindowBlur": { "type": "boolean" },
+        "blockCopyPaste": { "type": "boolean" },
+        "maxViolations": { "type": "integer" },
+        "violationAction": { "type": "string", "enum": ["suspend", "auto_submit"] },
+        "proctorPinHash": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "targetClasses": { "type": "array" },
+        "questionIds": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "numericId",
+        "teacherUid",
+        "teacherName",
+        "teacherUsername",
+        "title",
+        "subject",
+        "examCode",
+        "description",
+        "durationMinutes",
+        "startTime",
+        "endTime",
+        "questionCount",
+        "kkm",
+        "shuffleQuestions",
+        "shuffleOptions",
+        "allowStudentViewResult",
+        "isPublished",
+        "requireFullscreen",
+        "detectTabSwitch",
+        "detectWindowBlur",
+        "blockCopyPaste",
+        "maxViolations",
+        "violationAction",
+        "proctorPinHash",
+        "targetClasses",
+        "questionIds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExamCodeLookup": {
+      "title": "ExamCodeLookup",
+      "description": "Direct lookup map from normalized exam code to exam document ID.",
+      "type": "object",
+      "properties": {
+        "examCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "examId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "isPublished": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["examCode", "examId", "teacherUid", "isPublished", "updatedAt"]
+    },
+    "ExamItemDoc": {
+      "title": "ExamItemDoc",
+      "description": "Student-safe question snapshot attached to an exam without answer keys.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "questionNumericId": { "type": "integer" },
+        "orderIndex": { "type": "integer" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "type": { "type": "string", "enum": ["pg", "isian", "benar_salah", "uraian"] },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "imageData": { "type": "string", "maxLength": 750000 },
+        "options": { "type": "array" },
+        "points": { "type": "integer" }
+      },
+      "required": ["id", "questionNumericId", "orderIndex", "subject", "type", "prompt", "imageData", "options", "points"]
+    },
+    "ExamPrivateDoc": {
+      "title": "ExamPrivateDoc",
+      "description": "Protected exam secrets (proctor PIN config and answer keys).",
+      "type": "object",
+      "properties": {
+        "docType": { "type": "string", "enum": ["config", "keys"] },
+        "examId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "proctorPin": { "type": "string", "maxLength": 32 },
+        "allowStudentViewResult": { "type": "boolean" },
+        "entries": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["docType", "examId", "teacherUid", "updatedAt"]
+    },
+    "ExamSession": {
+      "title": "ExamSession",
+      "description": "Student exam attempt session keyed by examId_studentUid.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "examId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "examNumericId": { "type": "integer" },
+        "examTitle": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "examCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "kkm": { "type": "integer" },
+        "allowStudentViewResult": { "type": "boolean" },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "studentUsername": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "studentClass": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["in_progress", "suspended", "submitted", "timed_out"] },
+        "questionOrder": { "type": "array" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "serverEndTime": { "type": "string", "format": "date-time" },
+        "submittedAtMs": { "type": "integer" },
+        "lastSavedAt": { "type": "string", "format": "date-time" },
+        "violationCount": { "type": "integer" },
+        "autoScore": { "type": "integer" },
+        "essayScore": { "type": "integer" },
+        "maxPossibleScore": { "type": "integer" },
+        "finalScore": { "type": "integer" },
+        "essayGraded": { "type": "boolean" },
+        "teacherNotes": { "type": "string", "maxLength": 1000 },
+        "answeredCount": { "type": "integer" }
+      },
+      "required": [
+        "id",
+        "numericId",
+        "examId",
+        "examNumericId",
+        "examTitle",
+        "examCode",
+        "kkm",
+        "allowStudentViewResult",
+        "teacherUid",
+        "studentUid",
+        "studentName",
+        "studentUsername",
+        "studentClass",
+        "status",
+        "questionOrder",
+        "startedAt",
+        "serverEndTime",
+        "submittedAtMs",
+        "lastSavedAt",
+        "violationCount",
+        "autoScore",
+        "essayScore",
+        "maxPossibleScore",
+        "finalScore",
+        "essayGraded",
+        "teacherNotes",
+        "answeredCount"
+      ]
+    },
+    "StudentAnswerDoc": {
+      "title": "StudentAnswerDoc",
+      "description": "Individual student answer stored under an exam session.",
+      "type": "object",
+      "properties": {
+        "questionId": { "type": "integer" },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "answerText": { "type": "string", "maxLength": 8000 },
+        "isFlagged": { "type": "boolean" },
+        "autoPoints": { "type": "integer" },
+        "manualPoints": { "type": "integer" },
+        "isCorrect": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["questionId", "studentUid", "teacherUid", "answerText", "isFlagged", "autoPoints", "manualPoints", "isCorrect", "updatedAt"]
+    },
+    "ViolationLog": {
+      "title": "ViolationLog",
+      "description": "Immutable audit log entry for Exam Mode violations and proctor unlocks.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "numericId": { "type": "integer" },
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "examId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "examTitle": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "examCode": { "type": "string", "minLength": 4, "maxLength": 32 },
+        "teacherUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "studentUsername": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "studentClass": { "type": "string", "maxLength": 80 },
+        "violationType": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "actionTaken": {
+          "type": "string",
+          "enum": ["warning", "suspended", "auto_submitted", "unlocked_by_proctor", "unlocked_by_teacher"]
+        },
+        "occurredAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "numericId",
+        "sessionId",
+        "examId",
+        "examTitle",
+        "examCode",
+        "teacherUid",
+        "studentUid",
+        "studentName",
+        "studentUsername",
+        "studentClass",
+        "violationType",
+        "description",
+        "actionTaken",
+        "occurredAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/portalSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/PortalSettings" },
+      "description": "School branding and portal aggregate statistics."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Administrator registry."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public-safe user profiles without PII."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "PII-isolated private user info subcollection."
+    },
+    "/teacherInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/TeacherInvite" },
+      "description": "Teacher invitations authorized by Super Admin."
+    },
+    "/studentRoster/{rosterId}": {
+      "schema": { "$ref": "#/entities/StudentRoster" },
+      "description": "Student roster managed by teachers."
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/Question" },
+      "description": "Teacher question bank items."
+    },
+    "/exams/{examId}": {
+      "schema": { "$ref": "#/entities/Exam" },
+      "description": "Exam schedules and Exam Mode settings."
+    },
+    "/examCodes/{examCode}": {
+      "schema": { "$ref": "#/entities/ExamCodeLookup" },
+      "description": "Direct exam code lookup index."
+    },
+    "/exams/{examId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/ExamItemDoc" },
+      "description": "Student-safe exam questions without answer keys."
+    },
+    "/exams/{examId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/ExamPrivateDoc" },
+      "description": "Protected exam secrets (proctor PIN config and answer keys)."
+    },
+    "/examSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ExamSession" },
+      "description": "Student exam attempt sessions."
+    },
+    "/examSessions/{sessionId}/answers/{answerId}": {
+      "schema": { "$ref": "#/entities/StudentAnswerDoc" },
+      "description": "Student answer drafts and grades under an exam session."
+    },
+    "/violationLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ViolationLog" },
+      "description": "Audit log of Exam Mode violations and unlocks."
+    }
+  }
+}
