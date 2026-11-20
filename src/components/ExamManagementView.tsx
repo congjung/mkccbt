@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckSquare,
   Copy,
@@ -55,7 +55,8 @@ export function ExamManagementView() {
   const [violationAction, setViolationAction] = useState<'suspend' | 'auto_submit'>('suspend');
   const [proctorPin, setProctorPin] = useState('998877');
   const [selectedQIds, setSelectedQIds] = useState<number[]>([]);
-  const [questionClassFilter, setQuestionClassFilter] = useState<string>('all');
+  const [questionSubjectFilter, setQuestionSubjectFilter] = useState<string>('all');
+  const [customSubjectMode, setCustomSubjectMode] = useState(false);
   const [targetClasses, setTargetClasses] = useState<string[]>([]);
   const [customClassInput, setCustomClassInput] = useState('');
 
@@ -82,6 +83,19 @@ export function ExamManagementView() {
     loadAll();
   }, []);
 
+  const { subjectOptions, subjectCounts } = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const q of questions) {
+      const clean = (q.subject || '').trim();
+      if (!clean) continue;
+      counts.set(clean, (counts.get(clean) || 0) + 1);
+    }
+    const sorted = Array.from(counts.keys()).sort((a, b) =>
+      a.localeCompare(b, 'id')
+    );
+    return { subjectOptions: sorted, subjectCounts: counts };
+  }, [questions]);
+
   const generateCode = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let out = 'CBT';
@@ -94,18 +108,25 @@ export function ExamManagementView() {
   const openCreateModal = () => {
     const now = new Date();
     const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const defaultSubject = subjectOptions[0] || '';
+    const matchingIds = defaultSubject
+      ? questions
+          .filter((q) => (q.subject || '').trim() === defaultSubject)
+          .map((q) => q.id)
+      : questions.map((q) => q.id);
+
     setEditingId(null);
     setTitle('');
-    setSubject('Informatika & Literasi Digital');
+    setSubject(defaultSubject);
+    setCustomSubjectMode(subjectOptions.length === 0);
     generateCode();
     setDescription('');
     setDurationMinutes(45);
     setStartTime(toLocalDatetimeInput(now));
     setEndTime(toLocalDatetimeInput(nextWeek));
-    const allIds = questions.map((q) => q.id);
-    setSelectedQIds(allIds);
-    setQuestionClassFilter('all');
-    setQuestionCount(Math.max(1, allIds.length));
+    setSelectedQIds(matchingIds);
+    setQuestionSubjectFilter(defaultSubject || 'all');
+    setQuestionCount(Math.max(1, matchingIds.length));
     setKkm(75);
     setShuffleQuestions(true);
     setShuffleOptions(true);
@@ -125,9 +146,14 @@ export function ExamManagementView() {
   };
 
   const openEditModal = (exam: ExamItem) => {
+    const cleanSubject = (exam.subject || '').trim();
+    const matchedOption = subjectOptions.find(
+      (s) => s.toLowerCase() === cleanSubject.toLowerCase()
+    );
     setEditingId(exam.id);
     setTitle(exam.title);
-    setSubject(exam.subject);
+    setSubject(matchedOption || exam.subject);
+    setCustomSubjectMode(!matchedOption);
     setExamCode(exam.examCode);
     setDescription(exam.description);
     setDurationMinutes(exam.durationMinutes);
@@ -147,11 +173,29 @@ export function ExamManagementView() {
     setViolationAction(exam.violationAction);
     setProctorPin(exam.proctorPin);
     setSelectedQIds(exam.questionIds || []);
-    setQuestionClassFilter('all');
+    setQuestionSubjectFilter('all');
     setTargetClasses(exam.targetClasses || []);
     setCustomClassInput('');
     setFormError(null);
     setModalOpen(true);
+  };
+
+  const handleSelectExamSubject = (value: string) => {
+    if (value === '__custom__') {
+      setCustomSubjectMode(true);
+      setSubject('');
+      return;
+    }
+    setCustomSubjectMode(false);
+    setSubject(value);
+    setQuestionSubjectFilter(value || 'all');
+    if (!editingId) {
+      const matchingIds = questions
+        .filter((q) => (q.subject || '').trim() === value)
+        .map((q) => q.id);
+      setSelectedQIds(matchingIds);
+      setQuestionCount(Math.max(1, matchingIds.length));
+    }
   };
 
   const toggleQuestion = (qId: number) => {
@@ -185,35 +229,15 @@ export function ExamManagementView() {
     setCustomClassInput('');
   };
 
-  const getQClasses = (q: QuestionItem): string[] => {
-    if (Array.isArray(q.targetClasses) && q.targetClasses.length > 0) {
-      return q.targetClasses
-        .map((c) => c.trim())
-        .filter((c) => c && c.toLowerCase() !== 'semua kelas');
-    }
-    if (q.className) {
-      return q.className
-        .split(/[,;]+/)
-        .map((c) => c.trim())
-        .filter((c) => c && c.toLowerCase() !== 'semua kelas');
-    }
-    return [];
-  };
-
   const classOptions = Array.from(
-    new Set([
-      ...availableClasses,
-      ...targetClasses,
-      ...questions.flatMap((q) => getQClasses(q)),
-    ])
+    new Set([...availableClasses, ...targetClasses])
   ).sort((a, b) => a.localeCompare(b, 'id'));
 
   const filteredQuestions = questions.filter((q) => {
-    if (questionClassFilter === 'all') return true;
-    const qClasses = getQClasses(q);
-    if (questionClassFilter === 'Semua Kelas') return qClasses.length === 0;
-    return qClasses.some(
-      (c) => c.toLowerCase() === questionClassFilter.trim().toLowerCase()
+    if (questionSubjectFilter === 'all') return true;
+    return (
+      (q.subject || '').trim().toLowerCase() ===
+      questionSubjectFilter.trim().toLowerCase()
     );
   });
 
@@ -477,15 +501,54 @@ export function ExamManagementView() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Mata Pelajaran
+                    Mata Pelajaran (dari Bank Soal)
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                  />
+                  {subjectOptions.length > 0 ? (
+                    <div className="space-y-2">
+                      <select
+                        required={!customSubjectMode}
+                        value={customSubjectMode ? '__custom__' : subject}
+                        onChange={(e) => handleSelectExamSubject(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+                      >
+                        {!subject && !customSubjectMode && (
+                          <option value="">-- Pilih Mata Pelajaran --</option>
+                        )}
+                        {subjectOptions.map((subj) => (
+                          <option key={subj} value={subj}>
+                            {subj} ({subjectCounts.get(subj) || 0} soal)
+                          </option>
+                        ))}
+                        <option value="__custom__">
+                          + Ketik Mata Pelajaran Baru...
+                        </option>
+                      </select>
+                      {customSubjectMode && (
+                        <input
+                          type="text"
+                          required
+                          value={subject}
+                          onChange={(e) => setSubject(e.target.value)}
+                          placeholder="Ketik nama mata pelajaran..."
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <input
+                        type="text"
+                        required
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        placeholder="Ketik mata pelajaran ujian..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Bank Soal masih kosong. Tambahkan soal di menu Bank Soal agar mata pelajaran muncul otomatis di sini.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -816,15 +879,16 @@ export function ExamManagementView() {
                   </label>
                   <div className="flex flex-wrap items-center gap-2">
                     <select
-                      value={questionClassFilter}
-                      onChange={(e) => setQuestionClassFilter(e.target.value)}
+                      value={questionSubjectFilter}
+                      onChange={(e) => setQuestionSubjectFilter(e.target.value)}
                       className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs text-slate-700"
                     >
-                      <option value="all">Semua Kelas Soal</option>
-                      <option value="Semua Kelas">Umum (Semua Kelas)</option>
-                      {classOptions.map((cls) => (
-                        <option key={cls} value={cls}>
-                          Kelas {cls}
+                      <option value="all">
+                        Semua Mata Pelajaran ({questions.length} soal)
+                      </option>
+                      {subjectOptions.map((subj) => (
+                        <option key={subj} value={subj}>
+                          {subj} ({subjectCounts.get(subj) || 0} soal)
                         </option>
                       ))}
                     </select>
@@ -860,7 +924,7 @@ export function ExamManagementView() {
                     <div className="p-4 text-xs text-slate-500 text-center">
                       {questions.length === 0
                         ? 'Bank soal masih kosong. Tambahkan soal di menu Bank Soal terlebih dahulu.'
-                        : 'Tidak ada soal pada filter kelas ini.'}
+                        : 'Tidak ada soal pada mata pelajaran ini.'}
                     </div>
                   ) : (
                     filteredQuestions.map((q) => {
@@ -882,11 +946,7 @@ export function ExamManagementView() {
                               {q.prompt}
                             </p>
                             <p className="text-xs text-slate-500">
-                              {q.type.toUpperCase()} · {q.subject} ·{' '}
-                              {getQClasses(q).length > 0
-                                ? `Kelas ${getQClasses(q).join(', ')}`
-                                : 'Semua Kelas'}{' '}
-                              · {q.points} poin
+                              {q.type.toUpperCase()} · {q.subject} · {q.points} poin
                             </p>
                           </div>
                         </button>

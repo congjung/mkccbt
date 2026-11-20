@@ -400,8 +400,6 @@ async function ensureDemoSeededForAdmin(adminUser: AuthUser): Promise<void> {
         teacherName: adminUser.name,
         teacherUsername: adminUser.username,
         subject: q.subject,
-        className: 'Semua Kelas',
-        targetClasses: [],
         type: q.type,
         prompt: q.prompt,
         imageData: '',
@@ -863,10 +861,6 @@ async function fetchQuestionsForActor(actor: AuthUser) {
     return snap.docs
       .map((d) => {
         const data = d.data();
-        const normalizedClasses = normalizeQuestionClasses(
-          data.targetClasses,
-          data.className
-        );
         return {
           docId: d.id,
           id: Number(data.numericId),
@@ -875,8 +869,6 @@ async function fetchQuestionsForActor(actor: AuthUser) {
           teacherName: data.teacherName || 'Guru',
           teacherUsername: data.teacherUsername || '-',
           subject: data.subject,
-          className: normalizedClasses.className,
-          targetClasses: normalizedClasses.targetClasses,
           type: data.type,
           prompt: data.prompt,
           imageData: data.imageData || null,
@@ -1123,64 +1115,8 @@ async function autoGradeSessionIfNeeded(sessionDoc: any) {
   return sData;
 }
 
-function normalizeQuestionClasses(
-  rawTargetClasses: unknown,
-  rawClassName: unknown
-): { targetClasses: string[]; className: string } {
-  const fromArray = Array.isArray(rawTargetClasses)
-    ? rawTargetClasses
-        .map((c: any) => sanitizeText(c, 60))
-        .filter((c: string) => c && c.toLowerCase() !== 'semua kelas')
-    : [];
-  const fromString =
-    fromArray.length === 0 && typeof rawClassName === 'string'
-      ? rawClassName
-          .split(/[,;]+/)
-          .map((c) => sanitizeText(c, 60))
-          .filter((c) => c && c.toLowerCase() !== 'semua kelas')
-      : [];
-
-  const seen = new Set<string>();
-  const targetClasses: string[] = [];
-  for (const item of [...fromArray, ...fromString]) {
-    const key = item.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      targetClasses.push(item);
-      if (targetClasses.length >= 50) break;
-    }
-  }
-
-  let className = 'Semua Kelas';
-  if (targetClasses.length > 0) {
-    const joined = targetClasses.join(', ');
-    if (joined.length <= 80) {
-      className = joined;
-    } else {
-      let acc = targetClasses[0].slice(0, 60);
-      let count = 1;
-      for (let i = 1; i < targetClasses.length; i += 1) {
-        const candidate = `${acc}, ${targetClasses[i]}`;
-        if (candidate.length <= 64) {
-          acc = candidate;
-          count += 1;
-        } else {
-          break;
-        }
-      }
-      const remaining = targetClasses.length - count;
-      className = remaining > 0 ? `${acc} (+${remaining})` : acc.slice(0, 80);
-    }
-  }
-  return { targetClasses, className };
-}
-
 function validateQuestionPayload(body: any) {
   const subject = sanitizeText(body?.subject, 120);
-  const { targetClasses, className } = normalizeQuestionClasses(
-    body?.targetClasses,
-    body?.className
-  );
   const type = body?.type;
   const prompt = sanitizeText(body?.prompt, 4000);
   const correctAnswer = sanitizeText(body?.correctAnswer, 2000);
@@ -1234,8 +1170,6 @@ function validateQuestionPayload(body: any) {
 
   return {
     subject,
-    className,
-    targetClasses,
     type: type as 'pg' | 'isian' | 'benar_salah' | 'uraian',
     prompt,
     imageData,
@@ -2065,8 +1999,6 @@ export async function dispatchFirestoreApi<T>(
           teacherName: actor.name,
           teacherUsername: actor.username,
           subject: payload.subject,
-          className: payload.className,
-          targetClasses: payload.targetClasses,
           type: payload.type,
           prompt: payload.prompt,
           imageData: payload.imageData,
@@ -2113,8 +2045,6 @@ export async function dispatchFirestoreApi<T>(
         teacherName: actor.name,
         teacherUsername: actor.username,
         subject: payload.subject,
-        className: payload.className,
-        targetClasses: payload.targetClasses,
         type: payload.type,
         prompt: payload.prompt,
         imageData: payload.imageData,
@@ -2148,8 +2078,6 @@ export async function dispatchFirestoreApi<T>(
       try {
         await updateDoc(doc(db, 'questions', qId), {
           subject: payload.subject,
-          className: payload.className,
-          targetClasses: payload.targetClasses,
           type: payload.type,
           prompt: payload.prompt,
           imageData: payload.imageData,

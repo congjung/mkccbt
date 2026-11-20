@@ -23,8 +23,6 @@ export interface QuestionItem {
   teacherName?: string;
   teacherUsername?: string;
   subject: string;
-  className?: string;
-  targetClasses?: string[];
   type: QuestionType;
   prompt: string;
   imageData?: string | null;
