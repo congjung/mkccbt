@@ -89,6 +89,7 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | QuestionType>('all');
   const [teacherFilter, setTeacherFilter] = useState<string>('all');
 
@@ -145,13 +146,17 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     loadQuestions();
   }, []);
 
-  const subjectOptions = useMemo(() => {
-    const set = new Set<string>();
+  const { subjectOptions, subjectCounts } = useMemo(() => {
+    const counts = new Map<string, number>();
     for (const q of questions) {
       const clean = (q.subject || '').trim();
-      if (clean) set.add(clean);
+      if (!clean) continue;
+      counts.set(clean, (counts.get(clean) || 0) + 1);
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'id'));
+    const sorted = Array.from(counts.keys()).sort((a, b) =>
+      a.localeCompare(b, 'id')
+    );
+    return { subjectOptions: sorted, subjectCounts: counts };
   }, [questions]);
 
   const teacherOptions = useMemo(() => {
@@ -172,6 +177,13 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
     const q = search.trim().toLowerCase();
     return questions.filter((item) => {
       if (typeFilter !== 'all' && item.type !== typeFilter) return false;
+      if (
+        subjectFilter !== 'all' &&
+        (item.subject || '').trim().toLowerCase() !==
+          subjectFilter.trim().toLowerCase()
+      ) {
+        return false;
+      }
       if (isSuperAdmin && teacherFilter !== 'all' && String(item.teacherId) !== teacherFilter) {
         return false;
       }
@@ -183,11 +195,15 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
         (item.teacherUsername || '').toLowerCase().includes(q)
       );
     });
-  }, [questions, search, typeFilter, isSuperAdmin, teacherFilter]);
+  }, [questions, search, subjectFilter, typeFilter, isSuperAdmin, teacherFilter]);
 
   const openCreateModal = () => {
     setEditingId(null);
-    setSubject(subjectOptions[0] || 'Informatika & Literasi Digital');
+    setSubject(
+      subjectFilter !== 'all'
+        ? subjectFilter
+        : subjectOptions[0] || 'Informatika & Literasi Digital'
+    );
     setType('pg');
     setPrompt('');
     setImageData('');
@@ -306,6 +322,14 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
         });
       }
       setModalOpen(false);
+      const savedSubject = subject.trim();
+      if (
+        subjectFilter !== 'all' &&
+        savedSubject &&
+        savedSubject.toLowerCase() !== subjectFilter.trim().toLowerCase()
+      ) {
+        setSubjectFilter(savedSubject);
+      }
       await loadQuestions();
     } catch (err: any) {
       setFormError(err.message || 'Gagal menyimpan soal.');
@@ -326,7 +350,11 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
   const openImportModal = () => {
     setImportError(null);
     setImportFileName('');
-    setImportSubject(subjectOptions[0] || 'Informatika & Literasi Digital');
+    setImportSubject(
+      subjectFilter !== 'all'
+        ? subjectFilter
+        : subjectOptions[0] || 'Informatika & Literasi Digital'
+    );
     setRawImportFile(null);
     setParsedItems([]);
     setSelectedImportIds([]);
@@ -438,6 +466,14 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
       setImportSuccess(
         `Berhasil mengimpor ${res.importedCount} butir soal dari Word ke Bank Soal.`
       );
+      const importedSubj = importSubject.trim();
+      if (
+        subjectFilter !== 'all' &&
+        importedSubj &&
+        importedSubj.toLowerCase() !== subjectFilter.trim().toLowerCase()
+      ) {
+        setSubjectFilter(importedSubj);
+      }
       await loadQuestions();
     } catch (err: any) {
       setImportError(err.message || 'Gagal mengimpor soal ke database.');
@@ -525,6 +561,22 @@ export function QuestionBankView({ user }: { user: AuthUser }) {
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
+
+          <select
+            value={subjectFilter}
+            onChange={(e) => setSubjectFilter(e.target.value)}
+            aria-label="Filter mata pelajaran"
+            className="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white text-slate-700"
+          >
+            <option value="all">
+              Semua Mata Pelajaran ({questions.length} soal)
+            </option>
+            {subjectOptions.map((subj) => (
+              <option key={subj} value={subj}>
+                {subj} ({subjectCounts.get(subj) || 0} soal)
+              </option>
+            ))}
+          </select>
 
           {isSuperAdmin && (
             <select
