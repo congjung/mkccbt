@@ -607,8 +607,8 @@ service cloud.firestore {
         allow list: if false;
         allow create: if isTeacher() && isValidId(examId) && isValidId(itemId) &&
           isValidExamItem(incoming(), itemId) &&
-          exists(/databases/$(database)/documents/exams/$(examId)) &&
-          (isAdmin() || get(/databases/$(database)/documents/exams/$(examId)).data.teacherUid == request.auth.uid);
+          existsAfter(/databases/$(database)/documents/exams/$(examId)) &&
+          (isAdmin() || getAfter(/databases/$(database)/documents/exams/$(examId)).data.teacherUid == request.auth.uid);
         allow update: if isTeacher() && isValidId(examId) && isValidId(itemId) &&
           isValidExamItem(incoming(), itemId) &&
           incoming().id == existing().id &&
