@@ -25,7 +25,10 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'password'
+      );
     }
 
     function isOwner(userId) {
@@ -37,7 +40,10 @@ service cloud.firestore {
     }
 
     function isAdminByEmail() {
-      return isVerified() && request.auth.token.email == 'izanalhuda@gmail.com';
+      return isSignedIn() && (
+        (request.auth.token.email_verified == true && request.auth.token.email == 'izanalhuda@gmail.com') ||
+        (request.auth.token.firebase.sign_in_provider == 'password' && request.auth.token.email == 'webadmin@mkccbt.local')
+      );
     }
 
     function isAdmin() {
@@ -439,16 +445,20 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isVerified() && isValidId(userId) && (isOwner(userId) || isTeacher());
       allow list: if isVerified() && (isAdminByEmail() || resource.data.role == 'siswa');
-      allow create: if isVerified() && isValidId(userId) && isOwner(userId) &&
+      allow create: if isVerified() && isValidId(userId) &&
         isValidUser(incoming(), userId) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time && (
-          incoming().role == 'siswa' ||
-          (incoming().role == 'super_admin' && isAdmin()) ||
-          (incoming().role == 'guru' && (
-            isAdmin() ||
-            exists(/databases/$(database)/documents/teacherInvites/$(emailKey(request.auth.token.email)))
-          ))
+          (isOwner(userId) && (
+            incoming().role == 'siswa' ||
+            (incoming().role == 'super_admin' && isAdmin()) ||
+            (incoming().role == 'guru' && (
+              isAdmin() ||
+              exists(/databases/$(database)/documents/teacherInvites/$(emailKey(request.auth.token.email)))
+            ))
+          )) ||
+          (isTeacher() && incoming().role == 'siswa') ||
+          (isAdmin() && incoming().role == 'guru')
         );
       allow update: if isVerified() && isValidId(userId) &&
         isValidUser(incoming(), userId) &&

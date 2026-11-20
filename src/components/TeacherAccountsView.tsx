@@ -22,6 +22,7 @@ export function TeacherAccountsView() {
   const [name, setName] = useState('');
   const [className, setClassName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -61,6 +62,7 @@ export function TeacherAccountsView() {
     setName('');
     setClassName('');
     setEmail('');
+    setPassword('');
     setFormError(null);
     setModalOpen(true);
   };
@@ -79,6 +81,7 @@ export function TeacherAccountsView() {
             name,
             className,
             email,
+            password,
           }),
         }
       );
@@ -303,18 +306,32 @@ export function TeacherAccountsView() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Email Akun Google Guru (Wajib)
+                  Email Kontak (Opsional)
                 </label>
                 <input
                   type="email"
-                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="guru@gmail.com atau guru@sekolah.sch.id"
+                  placeholder="guru@sekolah.sch.id"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Kata Sandi Login (Minimal 6 Karakter)
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Minimal 6 karakter"
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Guru masuk menggunakan tombol Login Google dengan email yang didaftarkan di sini.
+                  Guru masuk menggunakan Username dan Kata Sandi ini pada menu Login Guru.
                 </p>
               </div>
 

@@ -1,4 +1,9 @@
-import { User as FirebaseUser } from 'firebase/auth';
+import {
+  User as FirebaseUser,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
 import {
   Timestamp,
   collection,
@@ -14,9 +19,60 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { AuthUser, ExamLookupResponse, PublicPortalInfo, UserRole } from '../types/cbt';
-import { OperationType, auth, db, handleFirestoreError } from './firebase';
+import {
+  OperationType,
+  auth,
+  db,
+  handleFirestoreError,
+  provisioningAuth,
+} from './firebase';
 
 const BOOTSTRAP_ADMIN_EMAIL = 'izanalhuda@gmail.com';
+const SUPER_ADMIN_INTERNAL_EMAIL = 'webadmin@mkccbt.local';
+const INTERNAL_AUTH_DOMAIN = 'mkccbt.local';
+
+function toInternalAuthEmail(username: string): string {
+  const clean = username
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '');
+  return `${clean}@${INTERNAL_AUTH_DOMAIN}`;
+}
+
+function toStudentAuthPassword(pin: string): string {
+  return `mkc_pin_${pin.trim()}`;
+}
+
+function getProviderNotAllowedError(): Error {
+  return new Error(
+    'Login Username & Password membutuhkan provider Email/Password aktif di Firebase Console. Buka Authentication > Sign-in method di Firebase Console proyek Anda lalu aktifkan "Email/Password".'
+  );
+}
+
+async function provisionAuthUserWithoutSigningOut(
+  email: string,
+  password: string
+): Promise<string | null> {
+  try {
+    const cred = await createUserWithEmailAndPassword(
+      provisioningAuth,
+      email,
+      password
+    );
+    const uid = cred.user.uid;
+    await signOut(provisioningAuth).catch(() => undefined);
+    return uid;
+  } catch (err: any) {
+    await signOut(provisioningAuth).catch(() => undefined);
+    if (err?.code === 'auth/email-already-in-use') {
+      return null;
+    }
+    if (err?.code === 'auth/operation-not-allowed') {
+      throw getProviderNotAllowedError();
+    }
+    throw err;
+  }
+}
 
 let seqCounter = 1;
 function nextNumericId(): number {
@@ -93,10 +149,11 @@ function isStudentClassEligible(
 }
 
 function isCurrentUserAdminEmail(): boolean {
-  return (
-    (auth.currentUser?.email || '').toLowerCase() === BOOTSTRAP_ADMIN_EMAIL &&
-    auth.currentUser?.emailVerified === true
-  );
+  const email = (auth.currentUser?.email || '').toLowerCase();
+  if (email === BOOTSTRAP_ADMIN_EMAIL && auth.currentUser?.emailVerified === true) {
+    return true;
+  }
+  return email === SUPER_ADMIN_INTERNAL_EMAIL;
 }
 
 async function getCurrentAuthProfile(): Promise<AuthUser> {
@@ -148,31 +205,90 @@ async function ensureDemoSeededForAdmin(adminUser: AuthUser): Promise<void> {
       });
     }
 
+    // Seed demo teacher guru1 / Guru123! if teacherInvites is empty
+    const existingInvites = await getDocs(collection(db, 'teacherInvites'));
+    if (existingInvites.empty) {
+      const guruEmail = toInternalAuthEmail('guru1');
+      const guruInviteId = emailToKey(guruEmail);
+      const guruNumId = nextNumericId();
+      const guruUid = await provisionAuthUserWithoutSigningOut(
+        guruEmail,
+        'Guru123!'
+      ).catch(() => null);
+
+      const tBatch = writeBatch(db);
+      tBatch.set(doc(db, 'teacherInvites', guruInviteId), {
+        id: guruInviteId,
+        numericId: guruNumId,
+        username: 'guru1',
+        name: 'Ibu Sari Wulandari, S.Pd.',
+        email: 'sari.wulandari@sekolah.sch.id',
+        className: 'Pengajar Informatika & Matematika',
+        createdByUid: adminUser.uid,
+        createdAt: serverTimestamp(),
+      });
+      if (guruUid) {
+        tBatch.set(doc(db, 'users', guruUid), {
+          uid: guruUid,
+          numericId: guruNumId,
+          username: 'guru1',
+          name: 'Ibu Sari Wulandari, S.Pd.',
+          role: 'guru',
+          className: 'Pengajar Informatika & Matematika',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await tBatch.commit();
+    }
+
+    // Seed demo students if studentRoster is empty
+    const existingRoster = await getDocs(collection(db, 'studentRoster'));
+    if (existingRoster.empty) {
+      const sampleStudents = [
+        { username: 'siswa01', name: 'Ahmad Fauzi', className: 'XII IPA 1', pin: '123456' },
+        { username: 'siswa02', name: 'Nadia Putri Pratama', className: 'XII IPA 1', pin: '123456' },
+        { username: 'siswa03', name: 'Budi Santoso', className: 'XII IPA 2', pin: '123456' },
+      ];
+      const sBatch = writeBatch(db);
+      for (let i = 0; i < sampleStudents.length; i += 1) {
+        const s = sampleStudents[i];
+        const numId = nextNumericId() + i;
+        const rosterId = `roster_${numId}`;
+        const stuUid = await provisionAuthUserWithoutSigningOut(
+          toInternalAuthEmail(s.username),
+          toStudentAuthPassword(s.pin)
+        ).catch(() => null);
+        sBatch.set(doc(db, 'studentRoster', rosterId), {
+          id: rosterId,
+          numericId: numId,
+          username: s.username,
+          name: s.name,
+          className: s.className,
+          accessPin: s.pin,
+          createdByUid: adminUser.uid,
+          createdAt: serverTimestamp(),
+        });
+        if (stuUid) {
+          sBatch.set(doc(db, 'users', stuUid), {
+            uid: stuUid,
+            numericId: numId,
+            username: s.username,
+            name: s.name,
+            role: 'siswa',
+            className: s.className,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+      await sBatch.commit();
+    }
+
     const existingQuestions = await getDocs(collection(db, 'questions'));
     if (!existingQuestions.empty) return;
 
     const batch = writeBatch(db);
-
-    const sampleStudents = [
-      { username: 'siswa01', name: 'Ahmad Fauzi', className: 'XII IPA 1', pin: '123456' },
-      { username: 'siswa02', name: 'Nadia Putri Pratama', className: 'XII IPA 1', pin: '123456' },
-      { username: 'siswa03', name: 'Budi Santoso', className: 'XII IPA 2', pin: '123456' },
-    ];
-    for (let i = 0; i < sampleStudents.length; i += 1) {
-      const s = sampleStudents[i];
-      const numId = nextNumericId() + i;
-      const rosterId = `roster_${numId}`;
-      batch.set(doc(db, 'studentRoster', rosterId), {
-        id: rosterId,
-        numericId: numId,
-        username: s.username,
-        name: s.name,
-        className: s.className,
-        accessPin: s.pin,
-        createdByUid: adminUser.uid,
-        createdAt: serverTimestamp(),
-      });
-    }
 
     const qDefs = [
       {
@@ -387,10 +503,25 @@ async function ensureDemoSeededForAdmin(adminUser: AuthUser): Promise<void> {
   }
 }
 
-export async function syncSignedInUser(fbUser: FirebaseUser): Promise<AuthUser> {
+const pendingUserSyncs = new Map<string, Promise<AuthUser>>();
+
+export function syncSignedInUser(fbUser: FirebaseUser): Promise<AuthUser> {
+  const existing = pendingUserSyncs.get(fbUser.uid);
+  if (existing) return existing;
+
+  const task = syncSignedInUserImpl(fbUser).finally(() => {
+    pendingUserSyncs.delete(fbUser.uid);
+  });
+  pendingUserSyncs.set(fbUser.uid, task);
+  return task;
+}
+
+async function syncSignedInUserImpl(fbUser: FirebaseUser): Promise<AuthUser> {
   const email = (fbUser.email || '').trim().toLowerCase();
+  const isInternalAdmin = email === SUPER_ADMIN_INTERNAL_EMAIL;
   const isBootstrapAdmin =
-    email === BOOTSTRAP_ADMIN_EMAIL && fbUser.emailVerified;
+    (email === BOOTSTRAP_ADMIN_EMAIL && fbUser.emailVerified) ||
+    isInternalAdmin;
 
   const userRef = doc(db, 'users', fbUser.uid);
   let snap;
@@ -401,13 +532,16 @@ export async function syncSignedInUser(fbUser: FirebaseUser): Promise<AuthUser> 
   }
 
   let resolvedRole: UserRole = 'siswa';
-  let resolvedName = fbUser.displayName || email.split('@')[0] || 'Pengguna';
-  let resolvedUsername =
-    email
-      .split('@')[0]
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, '')
-      .slice(0, 32) || fbUser.uid.slice(0, 12);
+  let resolvedName = isInternalAdmin
+    ? 'Super Admin MKC CBT'
+    : fbUser.displayName || email.split('@')[0] || 'Pengguna';
+  let resolvedUsername = isInternalAdmin
+    ? 'webadmin'
+    : email
+        .split('@')[0]
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, '')
+        .slice(0, 32) || fbUser.uid.slice(0, 12);
   let resolvedClassName = 'Umum';
   let numericId = nextNumericId();
 
@@ -511,7 +645,7 @@ export async function syncSignedInUser(fbUser: FirebaseUser): Promise<AuthUser> 
     uid: fbUser.uid,
     username: resolvedUsername,
     name: resolvedName,
-    email: email || null,
+    email: email.endsWith(`@${INTERNAL_AUTH_DOMAIN}`) ? null : email || null,
     role: resolvedRole,
     className: resolvedClassName,
   };
@@ -521,6 +655,117 @@ export async function syncSignedInUser(fbUser: FirebaseUser): Promise<AuthUser> 
   }
 
   return authUser;
+}
+
+export async function loginWithUsernameAndPassword(params: {
+  role: UserRole;
+  username: string;
+  credential: string;
+  examCode?: string;
+}): Promise<{
+  user: AuthUser;
+  initialExamLookup: ExamLookupResponse | null;
+}> {
+  const cleanUsername = sanitizeText(params.username, 64)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '');
+  const rawSecret = String(params.credential ?? '').trim();
+
+  if (!cleanUsername || !rawSecret) {
+    throw new Error(
+      params.role === 'siswa'
+        ? 'Username/NIS dan PIN siswa wajib diisi.'
+        : 'Username dan kata sandi wajib diisi.'
+    );
+  }
+
+  const internalEmail = toInternalAuthEmail(cleanUsername);
+  const fbPassword =
+    params.role === 'siswa' ? toStudentAuthPassword(rawSecret) : rawSecret;
+
+  let fbUser: FirebaseUser;
+  try {
+    const cred = await signInWithEmailAndPassword(
+      auth,
+      internalEmail,
+      fbPassword
+    );
+    fbUser = cred.user;
+  } catch (err: any) {
+    const code = err?.code || '';
+    if (code === 'auth/operation-not-allowed') {
+      throw getProviderNotAllowedError();
+    }
+
+    if (
+      (code === 'auth/user-not-found' || code === 'auth/invalid-credential') &&
+      cleanUsername === 'webadmin' &&
+      rawSecret === 'webadmin123'
+    ) {
+      try {
+        const created = await createUserWithEmailAndPassword(
+          auth,
+          SUPER_ADMIN_INTERNAL_EMAIL,
+          'webadmin123'
+        );
+        fbUser = created.user;
+      } catch (createErr: any) {
+        if (createErr?.code === 'auth/operation-not-allowed') {
+          throw getProviderNotAllowedError();
+        }
+        throw new Error('Username atau kata sandi Super Admin salah.');
+      }
+    } else if (
+      code === 'auth/wrong-password' ||
+      code === 'auth/user-not-found' ||
+      code === 'auth/invalid-credential'
+    ) {
+      throw new Error(
+        params.role === 'siswa'
+          ? 'Username/NIS atau PIN siswa tidak cocok.'
+          : params.role === 'super_admin'
+          ? 'Username atau kata sandi Super Admin salah.'
+          : 'Username atau kata sandi guru salah.'
+      );
+    } else if (code === 'auth/too-many-requests') {
+      throw new Error(
+        'Terlalu banyak percobaan login gagal. Tunggu sebentar lalu coba lagi.'
+      );
+    } else {
+      throw new Error(err?.message || 'Gagal melakukan autentikasi.');
+    }
+  }
+
+  const syncedUser = await syncSignedInUser(fbUser);
+
+  const roleAllowed =
+    params.role === 'siswa'
+      ? syncedUser.role === 'siswa'
+      : params.role === 'super_admin'
+      ? syncedUser.role === 'super_admin'
+      : syncedUser.role === 'guru' || syncedUser.role === 'super_admin';
+
+  if (!roleAllowed) {
+    await signOut(auth).catch(() => undefined);
+    throw new Error(
+      params.role === 'siswa'
+        ? 'Akun ini adalah akun Guru/Admin. Gunakan mode Login Guru / Admin.'
+        : params.role === 'super_admin'
+        ? 'Username atau kata sandi Super Admin salah.'
+        : 'Username atau kata sandi guru salah.'
+    );
+  }
+
+  let initialExamLookup: ExamLookupResponse | null = null;
+  const cleanCode = normalizeExamCode(params.examCode || '');
+  if (syncedUser.role === 'siswa' && cleanCode) {
+    initialExamLookup = await lookupExamByCodeForStudent(cleanCode, syncedUser);
+  }
+
+  return {
+    user: syncedUser,
+    initialExamLookup,
+  };
 }
 
 export async function getPublicPortalInfoFromFirestore(): Promise<PublicPortalInfo> {
@@ -1119,6 +1364,20 @@ export async function dispatchFirestoreApi<T>(
           eCountByUid.set(tUid, (eCountByUid.get(tUid) || 0) + 1);
         });
 
+        const inviteEmailByUsername = new Map<string, string | null>();
+        invitesSnap.docs.forEach((d) => {
+          const inv = d.data();
+          const rawEmail = String(inv.email || '').trim().toLowerCase();
+          const displayEmail =
+            rawEmail && !rawEmail.endsWith(`@${INTERNAL_AUTH_DOMAIN}`)
+              ? rawEmail
+              : null;
+          inviteEmailByUsername.set(
+            String(inv.username || '').toLowerCase(),
+            displayEmail
+          );
+        });
+
         const teachersList: any[] = [];
         const seenUsernames = new Set<string>();
 
@@ -1126,12 +1385,13 @@ export async function dispatchFirestoreApi<T>(
           .filter((d) => d.data().role === 'guru')
           .forEach((d) => {
             const u = d.data();
-            seenUsernames.add(u.username);
+            const uname = String(u.username || '').toLowerCase();
+            seenUsernames.add(uname);
             teachersList.push({
               id: Number(u.numericId),
               username: u.username,
               name: u.name,
-              email: null,
+              email: inviteEmailByUsername.get(uname) ?? null,
               className: u.className || 'Guru Mata Pelajaran',
               questionCount: qCountByUid.get(u.uid) || 0,
               examCount: eCountByUid.get(u.uid) || 0,
@@ -1141,12 +1401,18 @@ export async function dispatchFirestoreApi<T>(
 
         invitesSnap.docs.forEach((d) => {
           const inv = d.data();
-          if (!seenUsernames.has(inv.username)) {
+          const uname = String(inv.username || '').toLowerCase();
+          if (!seenUsernames.has(uname)) {
+            seenUsernames.add(uname);
+            const rawEmail = String(inv.email || '').trim().toLowerCase();
             teachersList.push({
               id: Number(inv.numericId),
               username: inv.username,
               name: inv.name,
-              email: inv.email || null,
+              email:
+                rawEmail && !rawEmail.endsWith(`@${INTERNAL_AUTH_DOMAIN}`)
+                  ? rawEmail
+                  : null,
               className: inv.className || 'Guru Mata Pelajaran',
               questionCount: 0,
               examCount: 0,
@@ -1166,7 +1432,8 @@ export async function dispatchFirestoreApi<T>(
         .toLowerCase()
         .replace(/[^a-z0-9._-]/g, '');
       const name = sanitizeText(body?.name, 100);
-      const email = sanitizeText(body?.email || '', 120).toLowerCase();
+      const contactEmail = sanitizeText(body?.email || '', 120).toLowerCase();
+      const password = String(body?.password ?? '').trim();
       const className =
         sanitizeText(body?.className || '', 80) || 'Guru Mata Pelajaran';
 
@@ -1176,25 +1443,53 @@ export async function dispatchFirestoreApi<T>(
       if (!name) {
         throw new Error('Nama lengkap guru wajib diisi.');
       }
-      if (!email || !email.includes('@')) {
-        throw new Error(
-          'Email Google guru wajib diisi agar guru dapat masuk menggunakan Google Sign-In.'
-        );
+      if (!password || password.length < 6) {
+        throw new Error('Kata sandi login guru minimal 6 karakter.');
+      }
+      if (contactEmail && !contactEmail.includes('@')) {
+        throw new Error('Format email kontak tidak valid.');
       }
 
-      const inviteId = emailToKey(email);
+      const internalEmail = toInternalAuthEmail(username);
+      const inviteId = emailToKey(internalEmail);
+
+      const existingInvite = await getDoc(doc(db, 'teacherInvites', inviteId));
+      if (existingInvite.exists()) {
+        throw new Error('Username guru sudah digunakan.');
+      }
+
+      const teacherUid = await provisionAuthUserWithoutSigningOut(
+        internalEmail,
+        password
+      );
+      if (!teacherUid) {
+        throw new Error('Username guru sudah digunakan di sistem.');
+      }
+
       const numId = nextNumericId();
       try {
-        await setDoc(doc(db, 'teacherInvites', inviteId), {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'teacherInvites', inviteId), {
           id: inviteId,
           numericId: numId,
           username,
           name,
-          email,
+          email: contactEmail || internalEmail,
           className,
           createdByUid: actor.uid,
           createdAt: serverTimestamp(),
         });
+        batch.set(doc(db, 'users', teacherUid), {
+          uid: teacherUid,
+          numericId: numId,
+          username,
+          name,
+          role: 'guru',
+          className,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        await batch.commit();
       } catch (err) {
         handleFirestoreError(
           err,
@@ -1208,7 +1503,7 @@ export async function dispatchFirestoreApi<T>(
           id: numId,
           username,
           name,
-          email,
+          email: contactEmail || null,
           className,
           questionCount: 0,
           examCount: 0,
@@ -1417,10 +1712,42 @@ export async function dispatchFirestoreApi<T>(
         throw new Error('PIN siswa minimal 4 karakter.');
       }
 
+      const [dupRosterSnap, dupUserSnap] = await Promise.all([
+        getDocs(
+          actor.role === 'super_admin'
+            ? query(collection(db, 'studentRoster'), where('username', '==', username))
+            : query(
+                collection(db, 'studentRoster'),
+                where('createdByUid', '==', actor.uid),
+                where('username', '==', username)
+              )
+        ),
+        getDocs(
+          query(
+            collection(db, 'users'),
+            where('role', '==', 'siswa'),
+            where('username', '==', username)
+          )
+        ),
+      ]);
+
+      if (!dupRosterSnap.empty || !dupUserSnap.empty) {
+        throw new Error('Username/NIS sudah terdaftar.');
+      }
+
+      const studentUid = await provisionAuthUserWithoutSigningOut(
+        toInternalAuthEmail(username),
+        toStudentAuthPassword(pin)
+      );
+      if (!studentUid) {
+        throw new Error('Username/NIS sudah digunakan oleh akun lain.');
+      }
+
       const numId = nextNumericId();
       const rosterId = `roster_${numId}`;
       try {
-        await setDoc(doc(db, 'studentRoster', rosterId), {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'studentRoster', rosterId), {
           id: rosterId,
           numericId: numId,
           username,
@@ -1430,6 +1757,17 @@ export async function dispatchFirestoreApi<T>(
           createdByUid: actor.uid,
           createdAt: serverTimestamp(),
         });
+        batch.set(doc(db, 'users', studentUid), {
+          uid: studentUid,
+          numericId: numId,
+          username,
+          name,
+          role: 'siswa',
+          className,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        await batch.commit();
       } catch (err) {
         handleFirestoreError(
           err,
@@ -1458,20 +1796,33 @@ export async function dispatchFirestoreApi<T>(
     if (rawList.length === 0) {
       throw new Error('Daftar akun siswa untuk diimpor tidak boleh kosong.');
     }
-    const existingSnap = await getDocs(
-      actor.role === 'super_admin'
-        ? collection(db, 'studentRoster')
-        : query(
-            collection(db, 'studentRoster'),
-            where('createdByUid', '==', actor.uid)
-          )
+    const [existingRosterSnap, existingStudentUsersSnap] = await Promise.all([
+      getDocs(
+        actor.role === 'super_admin'
+          ? collection(db, 'studentRoster')
+          : query(
+              collection(db, 'studentRoster'),
+              where('createdByUid', '==', actor.uid)
+            )
+      ),
+      getDocs(query(collection(db, 'users'), where('role', '==', 'siswa'))),
+    ]);
+    const existingUsernames = new Set<string>();
+    existingRosterSnap.docs.forEach((d) =>
+      existingUsernames.add(String(d.data().username || '').toLowerCase())
     );
-    const existingUsernames = new Set(
-      existingSnap.docs.map((d) => String(d.data().username).toLowerCase())
+    existingStudentUsersSnap.docs.forEach((d) =>
+      existingUsernames.add(String(d.data().username || '').toLowerCase())
     );
+
     const skippedUsernames: string[] = [];
-    const batch = writeBatch(db);
-    let importedCount = 0;
+    const candidates: Array<{
+      username: string;
+      name: string;
+      className: string;
+      pin: string;
+      numId: number;
+    }> = [];
 
     rawList.slice(0, 400).forEach((item: any, idx: number) => {
       const username = sanitizeText(item?.username, 40)
@@ -1481,36 +1832,89 @@ export async function dispatchFirestoreApi<T>(
       const className = sanitizeText(item?.className || 'Umum', 60) || 'Umum';
       const pin = sanitizeText(item?.pin, 32);
 
-      if (!username || !name || !pin) return;
+      if (!username || username.length < 3 || !name || !pin || pin.length < 4) {
+        return;
+      }
       if (existingUsernames.has(username)) {
         skippedUsernames.push(username);
         return;
       }
       existingUsernames.add(username);
-      const numId = nextNumericId() + idx;
-      const rosterId = `roster_${numId}`;
-      batch.set(doc(db, 'studentRoster', rosterId), {
-        id: rosterId,
-        numericId: numId,
+      candidates.push({
         username,
         name,
         className,
-        accessPin: pin,
-        createdByUid: actor.uid,
-        createdAt: serverTimestamp(),
+        pin,
+        numId: nextNumericId() + idx,
       });
-      importedCount += 1;
     });
 
-    if (importedCount > 0) {
+    const provisioned: Array<{
+      username: string;
+      name: string;
+      className: string;
+      pin: string;
+      numId: number;
+      uid: string;
+    }> = [];
+
+    for (let i = 0; i < candidates.length; i += 5) {
+      const slice = candidates.slice(i, i + 5);
+      const uids = await Promise.all(
+        slice.map((c) =>
+          provisionAuthUserWithoutSigningOut(
+            toInternalAuthEmail(c.username),
+            toStudentAuthPassword(c.pin)
+          )
+        )
+      );
+      slice.forEach((c, idx) => {
+        const uid = uids[idx];
+        if (!uid) {
+          skippedUsernames.push(c.username);
+        } else {
+          provisioned.push({ ...c, uid });
+        }
+      });
+    }
+
+    for (let i = 0; i < provisioned.length; i += 200) {
+      const chunk = provisioned.slice(i, i + 200);
+      const batch = writeBatch(db);
+      chunk.forEach((s) => {
+        const rosterId = `roster_${s.numId}`;
+        batch.set(doc(db, 'studentRoster', rosterId), {
+          id: rosterId,
+          numericId: s.numId,
+          username: s.username,
+          name: s.name,
+          className: s.className,
+          accessPin: s.pin,
+          createdByUid: actor.uid,
+          createdAt: serverTimestamp(),
+        });
+        batch.set(doc(db, 'users', s.uid), {
+          uid: s.uid,
+          numericId: s.numId,
+          username: s.username,
+          name: s.name,
+          role: 'siswa',
+          className: s.className,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
       await batch
         .commit()
         .catch((err) =>
           handleFirestoreError(err, OperationType.WRITE, 'studentRoster')
         );
+    }
+
+    if (provisioned.length > 0) {
       await refreshPortalCountersIfAdmin();
     }
-    return { importedCount, skippedUsernames } as T;
+    return { importedCount: provisioned.length, skippedUsernames } as T;
   }
 
   if (pathname.startsWith('/api/teacher/students/') && method === 'DELETE') {
@@ -1527,6 +1931,18 @@ export async function dispatchFirestoreApi<T>(
       );
       for (const d of snap.docs) {
         await deleteDoc(d.ref);
+      }
+      if (actor.role === 'super_admin') {
+        const usrSnap = await getDocs(
+          query(
+            collection(db, 'users'),
+            where('role', '==', 'siswa'),
+            where('numericId', '==', numId)
+          )
+        );
+        for (const d of usrSnap.docs) {
+          await deleteDoc(d.ref);
+        }
       }
       await refreshPortalCountersIfAdmin();
       return { success: true } as T;

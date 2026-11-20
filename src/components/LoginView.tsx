@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { signInWithPopup, signOut } from 'firebase/auth';
 import {
   AlertCircle,
   BookOpenCheck,
   Building2,
   CalendarCheck,
   CheckCircle2,
+  Eye,
+  EyeOff,
   KeyRound,
+  Lock,
+  LogIn,
   RefreshCw,
   ShieldCheck,
+  User,
   Users,
 } from 'lucide-react';
 import studentIllustration from '../assets/images/student_cbt_illustration_1794757646794.jpg';
-import { auth, googleAuthProvider } from '../lib/firebase';
-import {
-  lookupExamByCodeForStudent,
-  syncSignedInUser,
-} from '../lib/firestore-service';
+import { loginWithUsernameAndPassword } from '../lib/firestore-service';
 import {
   AuthUser,
   ExamLookupResponse,
@@ -50,7 +50,10 @@ export function LoginView({
   onSuccess,
 }: LoginViewProps) {
   const [role, setRole] = useState<UserRole>('siswa');
+  const [username, setUsername] = useState('');
+  const [credential, setCredential] = useState('');
   const [examCode, setExamCode] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
@@ -96,6 +99,9 @@ export function LoginView({
 
   const handleRoleSwitch = (nextRole: UserRole) => {
     setRole(nextRole);
+    setUsername('');
+    setCredential('');
+    setShowPassword(false);
     setError(null);
     if (nextRole !== 'siswa') {
       setExamCode('');
@@ -114,47 +120,27 @@ export function LoginView({
     }
   };
 
-  const handleGoogleSignIn = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const cred = await signInWithPopup(auth, googleAuthProvider);
-      const syncedUser = await syncSignedInUser(cred.user);
-
-      if (role !== 'siswa' && syncedUser.role === 'siswa') {
-        await signOut(auth).catch(() => undefined);
-        throw new Error(
-          'Akun Google ini terdaftar sebagai Siswa. Gunakan mode Login Siswa atau hubungi Super Admin untuk mendaftarkan email Google Anda sebagai Guru.'
-        );
-      }
-
-      let initialExamLookup: ExamLookupResponse | null = null;
-      const cleanCode = examCode.trim().toUpperCase();
-      if (role === 'siswa' && cleanCode) {
-        initialExamLookup = await lookupExamByCodeForStudent(
-          cleanCode,
-          syncedUser
-        );
-      }
+      const res = await loginWithUsernameAndPassword({
+        role,
+        username,
+        credential,
+        examCode,
+      });
 
       onSuccess({
-        user: syncedUser,
+        user: res.user,
         intendedMode: role,
-        initialExamLookup,
+        initialExamLookup: res.initialExamLookup,
       });
     } catch (err: any) {
-      if (err?.code === 'auth/popup-closed-by-user') {
-        setError('Jendela login Google ditutup sebelum selesai.');
-      } else if (err?.code === 'auth/popup-blocked') {
-        setError(
-          'Popup login diblokir peramban. Izinkan popup untuk situs ini dan coba lagi.'
-        );
-      } else {
-        setError(
-          err?.message || 'Gagal masuk menggunakan akun Google. Silakan coba lagi.'
-        );
-      }
+      setError(
+        err?.message || 'Gagal masuk. Periksa kembali username dan kata sandi Anda.'
+      );
     } finally {
       setLoading(false);
     }
@@ -241,7 +227,7 @@ export function LoginView({
           </div>
         </section>
 
-        {/* Right: Clean Google Sign-In + Status CBT */}
+        {/* Right: Username & Password/PIN Login + Status CBT */}
         <section className="lg:col-span-6 space-y-6">
           <div className="space-y-5">
             {/* Top-right Role Switcher Link */}
@@ -256,10 +242,10 @@ export function LoginView({
                 </h1>
                 <p className="text-sm text-slate-500 mt-1">
                   {role === 'siswa'
-                    ? 'Masuk dengan akun Google sekolah/pribadi lalu masukkan kode ujian dari pengawas'
+                    ? 'Ketik Username/NIS dan PIN peserta ujian sesuai kartu ujian Anda'
                     : role === 'super_admin'
-                    ? 'Kelola akun guru, bank soal menyeluruh, dan identitas sekolah'
-                    : 'Masuk menggunakan akun Google Guru yang telah didaftarkan Super Admin'}
+                    ? 'Masuk sebagai Super Admin untuk mengelola guru, siswa, dan pengaturan sekolah'
+                    : 'Ketik Username dan Kata Sandi Guru yang diberikan oleh Super Admin'}
                 </p>
               </div>
               <button
@@ -309,52 +295,108 @@ export function LoginView({
               </div>
             )}
 
-            <form onSubmit={handleGoogleSignIn} className="space-y-4">
-              {role === 'siswa' && (
+            <form onSubmit={handleSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  {role === 'siswa'
+                    ? 'Username / NIS Peserta'
+                    : role === 'super_admin'
+                    ? 'Username Super Admin'
+                    : 'Username Guru'}
+                </label>
                 <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
-                    aria-label="Kode Ujian (opsional)"
-                    value={examCode}
-                    onChange={(e) => setExamCode(e.target.value.toUpperCase())}
-                    placeholder="Kode Ujian (opsional, contoh: UJIAN2026)"
-                    className="w-full pl-3.5 pr-10 py-2.5 rounded-lg border border-slate-300 bg-slate-50/70 text-slate-900 text-sm font-mono uppercase placeholder:normal-case placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#009b4d] focus:border-[#009b4d] focus:bg-white"
+                    required
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={
+                      role === 'siswa'
+                        ? 'Contoh: siswa01'
+                        : role === 'super_admin'
+                        ? 'Contoh: webadmin'
+                        : 'Contoh: guru1'
+                    }
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-lg border border-slate-300 bg-slate-50/70 text-slate-900 text-sm font-mono lowercase placeholder:normal-case placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#009b4d] focus:border-[#009b4d] focus:bg-white"
                   />
-                  <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  {role === 'siswa' ? 'PIN / Kata Sandi' : 'Kata Sandi'}
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    value={credential}
+                    onChange={(e) => setCredential(e.target.value)}
+                    placeholder={
+                      role === 'siswa'
+                        ? 'Ketik PIN peserta (contoh: 123456)'
+                        : 'Ketik kata sandi akun Anda'
+                    }
+                    className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-slate-300 bg-slate-50/70 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#009b4d] focus:border-[#009b4d] focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={
+                      showPassword ? 'Sembunyikan sandi' : 'Tampilkan sandi'
+                    }
+                    className="p-1 text-slate-400 hover:text-slate-700 absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {role === 'siswa' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kode Ujian (Opsional)
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      aria-label="Kode Ujian (opsional)"
+                      value={examCode}
+                      onChange={(e) => setExamCode(e.target.value.toUpperCase())}
+                      placeholder="Contoh: UJIAN2026 (bisa diisi setelah masuk)"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-lg border border-slate-300 bg-slate-50/70 text-slate-900 text-sm font-mono uppercase placeholder:normal-case placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#009b4d] focus:border-[#009b4d] focus:bg-white"
+                    />
+                  </div>
                 </div>
               )}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 px-5 bg-[#009b4d] hover:bg-[#008240] disabled:opacity-60 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-3 cursor-pointer shadow-sm"
+                className={`w-full py-3 px-5 disabled:opacity-60 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2.5 cursor-pointer shadow-sm ${
+                  isStaffMode
+                    ? 'bg-[#1d63b8] hover:bg-[#175197]'
+                    : 'bg-[#009b4d] hover:bg-[#008240]'
+                }`}
               >
-                <svg className="w-4 h-4 shrink-0 bg-white rounded-full p-0.5" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
-                  />
-                </svg>
+                <LogIn className="w-4 h-4 shrink-0" />
                 <span>
                   {loading
-                    ? 'Menghubungkan Akun Google...'
+                    ? 'Memverifikasi Akun...'
                     : role === 'siswa'
-                    ? 'Masuk dengan Google (Siswa)'
+                    ? 'Masuk ke Portal Ujian'
                     : role === 'super_admin'
-                    ? 'Masuk dengan Google (Super Admin)'
-                    : 'Masuk dengan Google (Guru)'}
+                    ? 'Masuk sebagai Super Admin'
+                    : 'Masuk sebagai Guru'}
                 </span>
               </button>
 
@@ -362,8 +404,10 @@ export function LoginView({
                 <ShieldCheck className="w-4 h-4 text-[#009b4d] shrink-0 mt-0.5" />
                 <span>
                   {role === 'siswa'
-                    ? 'Otentikasi aman menggunakan akun Google terverifikasi. Data jawaban ujian tersimpan otomatis secara real-time.'
-                    : 'Hak akses Guru dan Super Admin diverifikasi langsung oleh aturan keamanan database berdasarkan email Google terdaftar.'}
+                    ? 'Gunakan Username/NIS dan PIN dari kartu peserta ujian. Jawaban tersimpan otomatis secara real-time.'
+                    : role === 'super_admin'
+                    ? 'Akun default Super Admin: username "webadmin" dengan kata sandi "webadmin123".'
+                    : 'Masuk dengan Username dan Kata Sandi yang telah dibuatkan oleh Super Admin.'}
                 </span>
               </div>
             </form>
