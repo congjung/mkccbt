@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  BookOpenCheck,
   CheckCircle2,
   Clock,
   Flag,
@@ -737,8 +736,12 @@ export function StudentPortal({
         <header className="bg-[#009b4d] text-white px-4 sm:px-6 py-3.5">
           <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-white/15 text-white flex items-center justify-center shrink-0">
-                <BookOpenCheck className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-lg bg-white p-0.5 flex items-center justify-center shrink-0 shadow-sm">
+                <img
+                  src="/assets/aistudio/Kabupaten_mempawah_29057062.png"
+                  alt={`Lambang ${portalInfo?.schoolName || 'Sekolah'}`}
+                  className="w-full h-full object-contain"
+                />
               </div>
               <div className="min-w-0">
                 <div className="font-display font-bold text-white truncate">
